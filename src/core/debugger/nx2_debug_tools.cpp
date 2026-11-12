@@ -509,6 +509,20 @@ json HostTiming(ToolState& state, const json& params) {
     return {{"previous", previous}, {"stats", stats.load()}};
 }
 
+// TEST (training builds, -DLICHII_PGO_TRAIN with -fprofile-generate): writes the profile
+// counters now, as LLVM_PROFILE_FILE names them. A normal exit writes them too, but test scripts
+// end the process.
+#ifdef LICHII_PGO_TRAIN
+extern "C" int __llvm_profile_write_file(void);
+#endif
+json WriteProfile(ToolState&, const json&) {
+#ifdef LICHII_PGO_TRAIN
+    return {{"written", __llvm_profile_write_file() == 0}};
+#else
+    return {{"written", false}, {"note", "not a training build"}};
+#endif
+}
+
 // TEST (local game build): the switches of our changes and measurements (common/nx2_switches.h).
 json Switches(ToolState&, const json&) {
     namespace Switches = Common::Nx2Switches;
@@ -742,6 +756,7 @@ Handlers MakeHandlers(const std::shared_ptr<ToolState>& state) {
         {"speed_limit", handler(SpeedLimit)},
         {"host_timing", handler(HostTiming)},
         {"switches", handler(Switches)},
+        {"write_profile", handler(WriteProfile)},
         {"set_switch", handler(SetSwitch)},
         {"read_memory", handler(ReadMemory)},
         {"search_memory", handler(SearchMemory)},

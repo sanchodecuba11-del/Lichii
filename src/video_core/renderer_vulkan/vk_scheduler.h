@@ -97,6 +97,14 @@ public:
     /// once); otherwise it goes with the next one. The back submits deferred work before it
     /// sleeps and when another thread asks (WaitSubmitted). True when the flush was deferred.
     bool DeferFlush();
+    /// TEST (worker_trace): `ticks` of the Vulkan worker spent in the part of a command `label`
+    /// names (static string), reported with the recording sites.
+    static void NoteWorkerDetail(const char* label, u64 ticks);
+    /// TEST (worker_trace): whether commands time their parts (NoteWorkerDetail).
+    [[nodiscard]] static bool WorkerDetail() {
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::WorkerTrace);
+    }
+
     /// TEST (idle_batch): microseconds a deferred submission may still wait within its window
     /// (0: none pending).
     [[nodiscard]] u64 DeferredFlushRemainingUs() const;

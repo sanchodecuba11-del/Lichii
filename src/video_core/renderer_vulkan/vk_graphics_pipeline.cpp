@@ -1840,10 +1840,21 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                       rescaling_data = rescaling.Data(), is_rescaling, update_rescaling,
                       uses_render_area = render_area.uses_render_area,
                       render_area_data = render_area.words](vk::CommandBuffer cmdbuf) {
+        // TEST (worker_trace): each part's time in the driver.
+        const bool detail = Scheduler::WorkerDetail();
+        u64 part_start = detail ? VideoCommon::Nx2Profile::Ticks() : 0;
+        const auto part = [&](const char* label) {
+            if (detail) [[unlikely]] {
+                const u64 now = VideoCommon::Nx2Profile::Ticks();
+                Scheduler::NoteWorkerDetail(label, now - part_start);
+                part_start = now;
+            }
+        };
         if (bind_descriptor_buffer) {
             const VkDescriptorBufferBindingInfoEXT binding_info{
                 descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk)};
             cmdbuf.BindDescriptorBuffersEXT(binding_info);
+            part("draw: bind descriptor buffer");
         }
         if (bind_pipeline) {
             scheduler.SetGraphicsPipelineMissing(!pipeline || build->Failed());
@@ -1851,6 +1862,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                 return;
             }
             cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline);
+            part("draw: bind pipeline");
         }
         const VkShaderStageFlags push_stages =
             mesh_emulation ? VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT
@@ -1871,6 +1883,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             cmdbuf.PushConstants(*pipeline_layout, push_stages, RENDERAREA_LAYOUT_OFFSET,
                                  sizeof(render_area_data), &render_area_data);
         }
+        part("draw: push constants");
         if (!descriptor_set_layout) {
             return;
         }
@@ -1886,15 +1899,18 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             const u32 buffer_index{};
             cmdbuf.SetDescriptorBufferOffsetsEXT(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline_layout,
                                                  0, buffer_index, descriptor_buffer_offset);
+            part("draw: descriptor buffer offsets");
         } else if (uses_push_descriptor) {
             cmdbuf.PushDescriptorSetWithTemplateKHR(*descriptor_update_template, *pipeline_layout,
                                                     0, descriptor_data);
+            part("draw: push descriptors");
         } else if (update_descriptors) {
             const VkDescriptorSet descriptor_set{descriptor_allocator.Commit()};
             const vk::Device& dev{device.GetLogical()};
             dev.UpdateDescriptorSet(descriptor_set, *descriptor_update_template, descriptor_data);
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline_layout, 0,
                                       descriptor_set, nullptr);
+            part("draw: descriptor set");
         }
     });
     return true;

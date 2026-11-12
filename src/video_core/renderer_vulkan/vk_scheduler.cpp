@@ -221,6 +221,10 @@ void MaybeReport() {
 
 } // Anonymous namespace
 
+void Scheduler::NoteWorkerDetail(const char* label, u64 ticks) {
+    WorkerTrace::Note(RecordSite{label, label, 0, RecordSite::Own, 0}, ticks);
+}
+
 void Scheduler::CommandChunk::ExecuteAll(vk::CommandBuffer cmdbuf,
                                          vk::CommandBuffer upload_cmdbuf, GpuCost* cost) {
     const bool timed =
