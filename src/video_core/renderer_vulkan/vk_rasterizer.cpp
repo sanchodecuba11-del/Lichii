@@ -2760,9 +2760,15 @@ void RasterizerVulkan::FlushAll() {}
 
 void RasterizerVulkan::SubmitNx2ListCopies() {
     // Submitted at once: ReadGpuWrittenCommands waits on these copies, so they can't sit out
-    // the longer DeferFlush interval (#161).
+    // the longer DeferFlush interval (#161). list_copy_defer: with the next batch instead; the
+    // front asks the back to submit one it waits for (BufferCacheRuntime::WaitSubmittedTick).
+    // Ocarina of Time's cave sent ~580 submissions a second from here, the front waited for
+    // none of the copies.
     if (buffer_cache.Nx2CopyListPages(scheduler.CurrentTick())) {
-        scheduler.Flush();
+        if (!Common::Nx2Switches::On(Common::Nx2Switches::Id::ListCopyDefer) ||
+            !scheduler.DeferFlush()) {
+            scheduler.Flush();
+        }
     }
 }
 
@@ -4165,7 +4171,10 @@ bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 
     buffer_cache.Nx2CollectListCopies(true);
     const bool copied = buffer_cache.DMACopy(src_address, dest_address, amount);
     if (buffer_cache.Nx2CopyListPages(scheduler.CurrentTick())) {
-        scheduler.Flush();
+        if (!Common::Nx2Switches::On(Common::Nx2Switches::Id::ListCopyDefer) ||
+            !scheduler.DeferFlush()) {
+            scheduler.Flush();
+        }
     }
     buffer_cache.Nx2CollectListCopies(false);
     return copied;

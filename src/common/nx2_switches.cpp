@@ -31,6 +31,9 @@ constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
     {"wfi_keep_pass", "Traduction : une invalidation en pleine passe de rendu, sans ecriture de stockage depuis la derniere barriere, garde la passe ouverte", 1, false, true},
     {"report_light", "Traduction : les rapports ne font plus d'allocation sur le tas", 1, false, true},
     {"direct_sink", "Traduction : les ecritures de registres par les macros passent par la mise de cote", 1, false, true},
+    {"blit_2d_placed", "Maitre : une copie 2D ecrit sa surface de destination, les acquisitions n'attendent plus la traduction pour elle", 1, false, true},
+    {"list_copy_defer", "Traduction : les copies de listes apres un calcul partent avec le prochain envoi groupe (le maitre le demande s'il les attend)", 1, false, true},
+    {"qmd_word_exact", "Maitre : la base d'une reduction de liberation QMD se lit aussi quand seuls des mots voisins sont ecrits (liste exacte des ecritures)", 1, false, true},
     {"gpu_profile", "Mesure : temps des fils GPU par zone, toutes les 10 s", 0, true, true},
     {"stutter_trace", "Mesure : chaque image de plus de 33 ms et sa cause ; resume toutes les 10 s", 0, true, true},
     {"frame_trace", "Mesure : par image, temps processeur de chaque fil, temps de la carte", 0, true, true},
@@ -39,6 +42,7 @@ constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
     {"park_trace", "Mesure : ce qui reveille un canal en pause, et apres combien de temps ; toutes les 2 s", 0, true, true},
     {"thread_trace", "Mesure : ou attendent les fils du jeu, ses sommeils, ses reveils", 0, true, true},
     {"other_trace", "Mesure : le poste autre de la traduction, par genre d'entree de l'anneau (avec gpu_profile) ; toutes les 10 s", 0, true, true},
+    {"worker_trace", "Mesure : le temps du fil Vulkan par commande, selon la ligne qui l'a enregistree ; toutes les 10 s", 0, true, true},
 }};
 
 std::mutex init_mutex;

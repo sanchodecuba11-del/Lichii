@@ -26,6 +26,7 @@
 #include "common/common_types.h"
 #include "common/dkb_frame_trace.h"
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/polyfill_thread.h"
 #include "common/settings.h"
 #include "video_core/gpu_split.h"
@@ -69,6 +70,11 @@ struct RecordSite {
     u32 line;
     Role role;
     u8 flags;
+
+    /// A command recorded before sites were (worker_trace switched on mid-chunk).
+    static constexpr RecordSite Unknown() {
+        return RecordSite{"?", "?", 0, Own, 0};
+    }
 };
 
 /// The scheduler abstracts command buffer and fence management with an interface that's able to do
@@ -447,8 +453,11 @@ private:
         /// cost: the TEST GPU cost trace when this chunk is in a submission it samples.
         void ExecuteAll(vk::CommandBuffer cmdbuf, vk::CommandBuffer upload_cmdbuf, GpuCost* cost);
 
-        /// TEST (EDEN_NX2_GPU_COST): the site of each command, in order.
+        /// TEST (EDEN_NX2_GPU_COST, worker_trace): the site of each command, in order.
         void NoteSite(const RecordSite& site) {
+            while (sites.size() + 1 < command_count) {
+                sites.push_back(RecordSite::Unknown());
+            }
             sites.push_back(site);
         }
 
@@ -472,6 +481,7 @@ private:
                 first = last;
             }
             command_offset += sizeof(FuncType);
+            ++command_count;
             return true;
         }
 
@@ -492,6 +502,7 @@ private:
         Command* last = nullptr;
 
         size_t command_offset = 0;
+        size_t command_count = 0;
         bool submit = false;
         std::vector<RecordSite> sites;
         /// Commands are constructed in data at offsets aligned for their type. Some hold
@@ -517,7 +528,8 @@ private:
             DispatchWork();
             (void)chunk->Record(command);
         }
-        if (record_sites) [[unlikely]] {
+        if (record_sites ||
+            Common::Nx2Switches::On(Common::Nx2Switches::Id::WorkerTrace)) [[unlikely]] {
             chunk->NoteSite({location.file_name(), location.function_name(), location.line(), role,
                              flags});
         }

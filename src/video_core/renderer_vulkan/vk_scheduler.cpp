@@ -15,6 +15,7 @@
 #include <optional>
 #include <vector>
 #include <string_view>
+#include <unordered_map>
 #include <string>
 #include <map>
 #include <tuple>
@@ -107,20 +108,144 @@ void ReportSubmitCounts() {
 }
 }
 
+namespace {
+
+/// TEST (worker_trace): the Vulkan worker's time per command, by the source line that recorded it
+/// (the driver's own code has no symbols to sample). Worker thread only.
+namespace WorkerTrace {
+
+struct Key {
+    const char* file;
+    u32 line;
+    bool operator==(const Key&) const = default;
+};
+struct KeyHash {
+    size_t operator()(const Key& key) const noexcept {
+        return std::hash<const void*>{}(key.file) ^ (size_t{key.line} * 0x9E3779B97F4A7C15ULL);
+    }
+};
+struct Totals {
+    u64 ticks{};
+    u64 count{};
+    const char* function{};
+};
+struct State {
+    std::unordered_map<Key, Totals, KeyHash> sites;
+    u64 window_start_ns{};
+    u64 window_start_ticks{};
+    u64 last_seen_ns{};
+};
+
+State& Get() {
+    static State state;
+    return state;
+}
+
+void Note(const RecordSite& site, u64 ticks) {
+    Totals& totals = Get().sites[Key{site.file, site.line}];
+    totals.ticks += ticks;
+    ++totals.count;
+    totals.function = site.function;
+}
+
+/// "Namespace::Class::Function" of a source_location function name (MSVC's full signature).
+std::string_view ShortFunction(std::string_view name) {
+    if (const size_t paren = name.find('('); paren != std::string_view::npos) {
+        name = name.substr(0, paren);
+    }
+    if (const size_t space = name.rfind(' '); space != std::string_view::npos) {
+        name = name.substr(space + 1);
+    }
+    return name;
+}
+
+std::string_view ShortFile(std::string_view file) {
+    if (const size_t slash = file.find_last_of("/\\"); slash != std::string_view::npos) {
+        file = file.substr(slash + 1);
+    }
+    return file;
+}
+
+void MaybeReport() {
+    State& state = Get();
+    const u64 now = VideoCommon::Nx2Profile::Now();
+    // Switched on again after a pause: a new window.
+    if (state.window_start_ns == 0 || now - state.last_seen_ns > 2'000'000'000ULL) {
+        state.window_start_ns = now;
+        state.window_start_ticks = VideoCommon::Nx2Profile::Ticks();
+        state.last_seen_ns = now;
+        state.sites.clear();
+        return;
+    }
+    state.last_seen_ns = now;
+    if (now - state.window_start_ns < 10'000'000'000ULL) {
+        return;
+    }
+    const double window_ticks = static_cast<double>(
+        (std::max<u64>)(VideoCommon::Nx2Profile::Ticks() - state.window_start_ticks, 1));
+    const double seconds = static_cast<double>(now - state.window_start_ns) / 1e9;
+    std::vector<std::pair<const Key*, const Totals*>> ranked;
+    u64 total_ticks = 0;
+    u64 total_count = 0;
+    for (const auto& [key, totals] : state.sites) {
+        ranked.emplace_back(&key, &totals);
+        total_ticks += totals.ticks;
+        total_count += totals.count;
+    }
+    std::sort(ranked.begin(), ranked.end(),
+              [](const auto& a, const auto& b) { return a.second->ticks > b.second->ticks; });
+    // Milliseconds a second of wall time, as the profile reports its zones.
+    const auto ms = [window_ticks](u64 ticks) {
+        return static_cast<double>(ticks) * 1000.0 / window_ticks;
+    };
+    std::string line;
+    for (size_t i = 0; i < ranked.size() && i < 24; ++i) {
+        const Key& key = *ranked[i].first;
+        const Totals& totals = *ranked[i].second;
+        const double per_second = static_cast<double>(totals.count) / seconds;
+        line += fmt::format(" | {}:{} {} {:.1f} ms ({:.0f}/s, {:.0f} ns)", ShortFile(key.file),
+                            key.line, ShortFunction(totals.function ? totals.function : "?"),
+                            ms(totals.ticks), per_second,
+                            ms(totals.ticks) * 1e6 / (std::max)(per_second, 1.0));
+    }
+    LOG_INFO(Render_Vulkan,
+             "Vulkan worker by recording site per second (worker_trace): commands {:.1f} ms "
+             "({:.0f}/s){}",
+             ms(total_ticks), static_cast<double>(total_count) / seconds, line);
+    state.sites.clear();
+    state.window_start_ns = now;
+    state.window_start_ticks = VideoCommon::Nx2Profile::Ticks();
+}
+
+} // namespace WorkerTrace
+
+} // Anonymous namespace
+
 void Scheduler::CommandChunk::ExecuteAll(vk::CommandBuffer cmdbuf,
                                          vk::CommandBuffer upload_cmdbuf, GpuCost* cost) {
+    const bool timed =
+        !sites.empty() && Common::Nx2Switches::On(Common::Nx2Switches::Id::WorkerTrace);
     auto command = first;
     for (size_t index = 0; command != nullptr; ++index) {
         auto next = command->GetNext();
         if (cost != nullptr && index < sites.size()) [[unlikely]] {
             cost->BeginCommand(sites[index]);
         }
+        const u64 start = timed ? VideoCommon::Nx2Profile::Ticks() : 0;
         command->Execute(cmdbuf, upload_cmdbuf);
+        if (timed) [[unlikely]] {
+            WorkerTrace::Note(index < sites.size() ? sites[index] : RecordSite::Unknown(),
+                              VideoCommon::Nx2Profile::Ticks() - start);
+        }
         command->~Command();
         command = next;
     }
+    if (timed) [[unlikely]] {
+        WorkerTrace::MaybeReport();
+    }
     sites.clear();
     submit = false;
+    command_count = 0;
     command_offset = 0;
     first = nullptr;
     last = nullptr;

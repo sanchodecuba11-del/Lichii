@@ -372,6 +372,10 @@ public:
     static constexpr size_t InlineToMemoryRegisterCount = 0x7f;
     std::array<u32, DmaRegisterCount> dma_registers{};
     std::array<u32, InlineToMemoryRegisterCount> inline_to_memory_registers{};
+    /// The channel's 2D engine registers (Fermi2D::Regs::NUM_REGS), likewise: where its blits
+    /// write.
+    static constexpr size_t Fermi2DRegisterCount = 0x258;
+    std::array<u32, Fermi2DRegisterCount> fermi2d_registers{};
 
     Engines::Puller puller;
     std::mutex sync_mutex;

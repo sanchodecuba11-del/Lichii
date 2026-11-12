@@ -27,16 +27,20 @@
 #endif
 
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
 #include "common/thread.h"
 #include "core/core.h"
 #include "core/memory.h"
 #include "video_core/nx2_profile.h"
+#include "video_core/surface.h"
+#include "video_core/textures/decoders.h"
 #include "video_core/dma_pusher.h"
 #include "video_core/command_fetch_order.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/engine_upload.h"
+#include "video_core/engines/fermi_2d.h"
 #include "video_core/engines/kepler_compute.h"
 #include "video_core/engines/kepler_memory.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -120,6 +124,27 @@ void NoteListRead(MemoryManager& memory, s32 channel, GPUVAddr address, u64 devi
 
 static_assert(DmaPusher::DmaRegisterCount == Engines::MaxwellDMA::RegisterCount);
 static_assert(DmaPusher::InlineToMemoryRegisterCount == Engines::KeplerMemory::Regs::NUM_REGS);
+static_assert(DmaPusher::Fermi2DRegisterCount == Engines::Fermi2D::Regs::NUM_REGS);
+
+/// The bytes of guest memory a 2D blit to `dst` may write (the software blitter's whole surface,
+/// SoftwareBlitEngine::Blit), or nothing where the front can't tell: the blit then counts as
+/// unplaced.
+std::optional<u64> Fermi2DWrittenBytes(const Engines::Fermi2D::Surface& dst) {
+    if (dst.layer != 0) {
+        return std::nullopt;
+    }
+    const auto format = VideoCore::Surface::TryPixelFormatFromRenderTargetFormat(dst.format);
+    if (!format) {
+        return std::nullopt;
+    }
+    const u32 bytes_per_pixel = VideoCore::Surface::BytesPerBlock(*format);
+    if (dst.linear == Engines::Fermi2D::MemoryLayout::BlockLinear) {
+        return Tegra::Texture::CalculateSize(true, bytes_per_pixel, dst.width, dst.height,
+                                             (std::max)(dst.depth, 1U), dst.block_height,
+                                             dst.block_depth);
+    }
+    return u64{dst.pitch} * u64{dst.height};
+}
 
 /// What the back writes running `method` of an engine the front sends methods to as they are
 /// (GpuSplit::Writes). A method the engine only keeps for later (its method sink) writes nothing
@@ -136,8 +161,13 @@ VideoCommon::GpuSplit::Writes EngineWrites(const Engines::EngineInterface& engin
         return Writes::Caches;
     case Engines::EngineTypes::KeplerMemory:
         return Writes::Noted;
+    case Engines::EngineTypes::Fermi2D:
+        // A blit writes its destination surface's image in the texture cache, or the surface in
+        // guest memory (software blits): DmaPusher::NoteEngineWrites places the surface.
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::Blit2dPlaced) ? Writes::Caches
+                                                                             : Writes::Unplaced;
     default:
-        // Blits and the engines without a front: where they write, the front does not know.
+        // The engines without a front: where they write, the front does not know.
         return Writes::Unplaced;
     }
 }
@@ -1097,11 +1127,32 @@ void DmaPusher::ShadowEngineMethod(Engines::EngineTypes type, u32 method, u32 ar
         if (method < inline_to_memory_registers.size()) {
             inline_to_memory_registers[method] = argument;
         }
+    } else if (type == Engines::EngineTypes::Fermi2D) {
+        if (method < fermi2d_registers.size()) {
+            fermi2d_registers[method] = argument;
+        }
     }
 }
 
 void DmaPusher::NoteEngineWrites(Engines::EngineTypes type, u32 method) {
     auto& split = VideoCommon::GpuSplit::Get();
+    if (type == Engines::EngineTypes::Fermi2D) {
+        if (method != FERMI2D_REG_INDEX(pixels_from_memory.src_y0) + 1) {
+            return;
+        }
+        // Fermi2D::Blit, to the destination surface the methods sent left. At Ocarina of Time's
+        // cave ~80 acquires a second waited for these blits as unplaced writes.
+        // (Unplaced as well if the switch went off since EngineWrites asked it.)
+        Engines::Fermi2D::Surface dst;
+        std::memcpy(&dst, &fermi2d_registers[FERMI2D_REG_INDEX(dst)], sizeof(dst));
+        if (const auto bytes = Fermi2DWrittenBytes(dst);
+            bytes && *bytes != 0 && Common::Nx2Switches::On(Common::Nx2Switches::Id::Blit2dPlaced)) {
+            split.NoteWrite(memory_manager, dst.Address(), *bytes);
+        } else {
+            split.NoteUnplacedWrite();
+        }
+        return;
+    }
     if (type == Engines::EngineTypes::KeplerMemory) {
         if (method != KEPLERMEMORY_REG_INDEX(data)) {
             return;

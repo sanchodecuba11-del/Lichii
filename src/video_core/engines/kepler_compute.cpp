@@ -1650,6 +1650,10 @@ struct FrontQmdMemory {
                                    u64 size) const {
         return split.MemoryWritesTarget(memory, address, size);
     }
+    [[nodiscard]] std::optional<u64> ExactPlacedTarget(const VideoCommon::GpuSplit& split,
+                                                       GPUVAddr address, u64 size) const {
+        return split.ExactPlacedTarget(memory, address, size);
+    }
     void NoteWrite(VideoCommon::GpuSplit& split, GPUVAddr address, u64 size) const {
         split.NoteWrite(memory, address, size);
     }

@@ -37,6 +37,9 @@ enum class Id : u32 {
     WfiKeepPass,       ///< A wait-for-idle in a render pass with no shader store since keeps it open
     ReportLight,       ///< Report operations fit std::function's inline storage
     DirectSink,        ///< Macro writes of state registers go through the sink
+    Blit2dPlaced,      ///< The front places a 2D blit's writes on its destination surface
+    ListCopyDefer,     ///< List copies after a dispatch are submitted with the next batch
+    QmdWordExact,      ///< A QMD release reduction's base from the exact placed writes to its word
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s
@@ -46,6 +49,7 @@ enum class Id : u32 {
     ParkTrace,         ///< What wakes a channel parked on a semaphore
     ThreadTrace,       ///< Where the game's threads wait (by reason), its sleeps, its wake-ups
     OtherTrace,        ///< The split's back outside every profile zone, by ring entry kind
+    WorkerTrace,       ///< The Vulkan worker's time per command, by the source line that recorded it
     Count,
 };
 

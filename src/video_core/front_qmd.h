@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "common/common_types.h"
+#include "common/nx2_switches.h"
 #include "video_core/gpu_split.h"
 #include "video_core/native_qmd.h"
 #include "video_core/nx2_drain_check.h"
@@ -60,7 +61,8 @@ namespace VideoCommon {
 ///   MemoryManager::Read<u32>), bool InSyncpointShim(GPUVAddr, u64);
 /// - std::optional<u64> Device(GPUVAddr), bool GpuWritten(u64 device, u64 size);
 /// - u64 WritesTarget(const GpuSplit&, GPUVAddr, u64), void NoteWrite(GpuSplit&, GPUVAddr, u64),
-///   void NoteWriteAt(GpuSplit&, GPUVAddr, u64 size, u64 position);
+///   void NoteWriteAt(GpuSplit&, GPUVAddr, u64 size, u64 position),
+///   std::optional<u64> ExactPlacedTarget(const GpuSplit&, GPUVAddr, u64);
 /// - const void* Id(): the address space's, the same for every Memory of it.
 class FrontQmdView {
 public:
@@ -790,15 +792,35 @@ private:
         }
         // The last write sent to the word's granule, placed or not.
         const u64 target = memory.WritesTarget(split, address, sizeof(u32));
+        // qmd_word_exact: the granule also counts the words next to it (Switch 2 packs its
+        // semaphores tightly) and the granules hashed to its set. As AskView decides an acquire:
+        // no write that may land anywhere or remap after `after` is queued, and of the placed
+        // writes the back has not run, none to the word itself after `after` (the exact log).
+        // At Ocarina of Time's cave ~35 greater-or-equal acquires a second waited for the back
+        // to run a QMD release reduction whose base was unknown this way.
+        const auto only_others_after = [&](u64 after) {
+            if (!Common::Nx2Switches::On(Common::Nx2Switches::Id::QmdWordExact) || !Current()) {
+                return false;
+            }
+            const u64 unplaced = split.LastUnplacedWrite();
+            const u64 mapping = split.LastMappingChange();
+            if ((unplaced > after && !split.Ran(unplaced)) ||
+                (mapping > after && !split.Ran(mapping))) {
+                return false;
+            }
+            const auto exact = memory.ExactPlacedTarget(split, address, sizeof(u32));
+            return exact && (*exact <= after || split.Ran(*exact));
+        };
         if (const auto queued = split.QueuedSemaphoreWriteAt(device)) {
             // A fenced one lands once its fence ran, before or after the back reads the word.
             if (queued->known && !queued->at_least && !queued->fenced &&
-                queued->position >= target) {
+                (queued->position >= target || only_others_after(queued->position))) {
                 return queued->payload;
             }
             return std::nullopt;
         }
-        if (memory.GpuWritten(device, sizeof(u32)) || !split.Ran(target)) {
+        if (memory.GpuWritten(device, sizeof(u32)) ||
+            (!split.Ran(target) && !only_others_after(0))) {
             return std::nullopt;
         }
         return memory.ReadWord(address);
