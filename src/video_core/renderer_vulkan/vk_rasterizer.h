@@ -542,6 +542,14 @@ private:
     u64 uniform_memory_serial{~u64{0}};
     u64 uniform_map_serial{~u64{0}};
     const Tegra::MemoryManager* uniform_gpu_memory{};
+    /// Scheduler::RecordSerial right after the last wait-for-idle barrier (TEST, wfi_dedup).
+    u64 wfi_serial{~u64{0}};
+    struct WfiStats {
+        u64 since{};
+        u64 total{};
+        u64 render_pass{};
+        u64 redundant{};
+    } wfi_stats;
     FastDrawStats fast_draw_stats;
     /// Nx2FastDraw::Enabled and VerifyEnabled as the drawing thread last read them.
     bool fast_draw_on{};

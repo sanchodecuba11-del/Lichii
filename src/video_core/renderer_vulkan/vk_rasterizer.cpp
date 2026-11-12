@@ -81,6 +81,7 @@
 #include "video_core/nx2_fast_draw.h"
 #include "video_core/nx2_list_stats.h"
 #include "video_core/nx2_profile.h"
+#include "video_core/nx2_other_trace.h"
 
 namespace Vulkan {
 
@@ -3221,6 +3222,31 @@ void RasterizerVulkan::WaitForIdle() {
         fence_manager.SignalOrdering();
         return;
     }
+    // TEST (switch wfi_dedup, live): nothing was recorded since the last such barrier, and no
+    // upload or clear waits to be: that barrier already orders everything before this one.
+    const bool redundant = wfi_serial == scheduler.RecordSerial() && !scheduler.WorkPending();
+    ++wfi_stats.total;
+    wfi_stats.render_pass += scheduler.IsRenderPassActive() ? 1 : 0;
+    wfi_stats.redundant += redundant ? 1 : 0;
+    if (VideoCommon::Nx2OtherTrace::Enabled()) [[unlikely]] {
+        const u64 now = VideoCommon::Nx2Profile::Now();
+        if (wfi_stats.since == 0 || now - wfi_stats.since > 15'000'000'000ULL) {
+            wfi_stats = {.since = now};
+        } else if (now - wfi_stats.since >= 10'000'000'000ULL) {
+            const double seconds = static_cast<double>(now - wfi_stats.since) / 1e9;
+            LOG_INFO(Render_Vulkan,
+                     "Wait for idle per second: {:.0f}, {:.0f} in a render pass, {:.0f} with "
+                     "nothing recorded since the last one",
+                     static_cast<double>(wfi_stats.total) / seconds,
+                     static_cast<double>(wfi_stats.render_pass) / seconds,
+                     static_cast<double>(wfi_stats.redundant) / seconds);
+            wfi_stats = {.since = now};
+        }
+    }
+    if (redundant && Common::Nx2Switches::On(Common::Nx2Switches::Id::WfiDedup)) {
+        fence_manager.SignalOrdering();
+        return;
+    }
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([flags](vk::CommandBuffer cmdbuf) {
         // Later work waits for the earlier work and sees its writes.
@@ -3232,6 +3258,7 @@ void RasterizerVulkan::WaitForIdle() {
         };
         cmdbuf.PipelineBarrier(flags, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, WFI_BARRIER);
     });
+    wfi_serial = scheduler.RecordSerial();
     fence_manager.SignalOrdering();
 }
 

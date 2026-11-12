@@ -270,6 +270,15 @@ public:
             location, RecordSite::Own, 0);
     }
 
+    /// Commands recorded so far (each Record bumps it).
+    [[nodiscard]] u64 RecordSerial() const noexcept {
+        return record_serial;
+    }
+    /// Uploads or a clear wait to reach the command buffer.
+    [[nodiscard]] bool WorkPending() const noexcept {
+        return uploads_pending || deferred_clear.framebuffer != nullptr;
+    }
+
     /// Whether anything was recorded since the last Flush or Finish, or waits to be: batched
     /// and reordered uploads and a deferred clear reach the command buffer only at the next
     /// record or submit.
