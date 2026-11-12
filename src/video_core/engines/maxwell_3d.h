@@ -3330,7 +3330,7 @@ private:
             return false;
         }
         constexpr u32 key_bits = (1U << 6) | (7U << 27) | (1U << 31); // constant, type, bgra
-        if (!VideoCommon::Nx2FastDraw::g_dynamic_strides.load(std::memory_order_relaxed)) {
+        if (!VideoCommon::Nx2FastDraw::g_vertex_streams_dynamic) {
             return false;
         }
         // TEST (switch fast_draw_unread): an attribute the kept pipeline's vertex stage doesn't
