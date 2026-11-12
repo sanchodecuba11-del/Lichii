@@ -19,13 +19,15 @@
 namespace Common::Nx2Switches {
 
 enum class Id : u32 {
-    // Changes of our pull requests (1 = on, the default).
+    // Changes of our older pull requests (0 = off, the default: no fps effect measured in the cave).
     ListWords,         ///< #1336: the host GPU reads the list words it wrote (list draws, dispatches)
     FastDrawNeutral,   ///< #1216: more draws keep the fast path (stride words, render enable, ...)
     AstcEvenBc,        ///< #1194: uneven-mip ASTC re-compressed to BC without its uneven tail (AMD)
     AmdDrawBudget,     ///< #1088: 512 draws per submission on AMD's proprietary driver
     AmdQueryAvailability, ///< #1087: query results copied with their availability (AMD)
     ImagePool,         ///< #922: 8-16 MiB images placed in a bounded pool of 64 MiB blocks
+    ListWaits,         ///< #1094 (no effect on #1161, which has its own version)
+    AcqPark,           ///< #1477 (no effect on #1161, which has its own version)
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

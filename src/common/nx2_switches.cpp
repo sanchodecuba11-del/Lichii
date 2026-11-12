@@ -14,12 +14,14 @@ namespace Common::Nx2Switches {
 namespace {
 
 constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
-    {"list_words", "#1336 : la carte lit les mots de listes qu'elle a ecrits (dessins et calculs)", 1, false, true},
-    {"fast_draw_neutral", "#1216 : plus de dessins gardent le chemin rapide (dessins reutilises)", 1, false, true},
-    {"astc_even_bc", "#1194 : ASTC a mips irreguliers recompresses en BC sans la queue (AMD) - au prochain lancement", 1, false, false},
-    {"amd_draw_budget", "#1088 : 512 dessins par envoi sur le pilote AMD", 1, false, true},
-    {"amd_query_availability", "#1087 : resultats de requetes copies avec leur disponibilite (AMD)", 1, false, true},
-    {"image_pool", "#922 : images de 8 a 16 Mio dans un pool borne de blocs de 64 Mio", 1, false, true},
+    {"list_words", "#1336 : la carte lit les mots de listes qu'elle a ecrits (dessins et calculs)", 0, false, true},
+    {"fast_draw_neutral", "#1216 : plus de dessins gardent le chemin rapide (dessins reutilises)", 0, false, true},
+    {"astc_even_bc", "#1194 : ASTC a mips irreguliers recompresses en BC sans la queue (AMD) - au prochain lancement", 0, false, false},
+    {"amd_draw_budget", "#1088 : 512 dessins par envoi sur le pilote AMD", 0, false, true},
+    {"amd_query_availability", "#1087 : resultats de requetes copies avec leur disponibilite (AMD)", 0, false, true},
+    {"image_pool", "#922 : images de 8 a 16 Mio dans un pool borne de blocs de 64 Mio", 0, false, true},
+    {"list_waits", "#1094 (sans effet ici : #1161 a sa version) : les listes n'attendent que les mots ecrits par la carte, plus les ecrivains d'avant la derniere synchro", 1, false, true},
+    {"acq_park", "#1477 (sans effet ici : #1161 a sa version) : une acquisition non satisfaite met le canal en pause sans vider la traduction", 1, false, true},
     {"gpu_profile", "Mesure : temps des fils GPU par zone, toutes les 10 s", 0, true, true},
     {"stutter_trace", "Mesure : chaque image de plus de 33 ms et sa cause ; resume toutes les 10 s", 0, true, true},
     {"frame_trace", "Mesure : par image, temps processeur de chaque fil, temps de la carte", 0, true, true},

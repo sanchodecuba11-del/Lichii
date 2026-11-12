@@ -2609,6 +2609,21 @@ void RasterizerVulkan::DispatchCompute() {
         const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
         const auto [buffer, offset] =
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
+        if (buffer->Handle() == VK_NULL_HANDLE) {
+            // The grid's address is not mapped: ObtainBuffer returns the null buffer, which has
+            // no VkBuffer where the device has null descriptors (AMD's driver then crashes in
+            // vkCmdDispatchIndirect). The dispatch has no grid to read; skip it.
+            static std::atomic<u64> skipped{};
+            const u64 count = skipped.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (std::has_single_bit(count)) {
+                LOG_WARNING(Render_Vulkan,
+                            "Indirect dispatch skipped: its grid at {:#x} is not mapped ({} so far, "
+                            "acq_park={})",
+                            *indirect_address, count,
+                            Common::Nx2Switches::Get(Common::Nx2Switches::Id::AcqPark));
+            }
+            return;
+        }
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.NoteComputeWrites();
         scheduler.TraceComputePipeline(pipeline->ShaderHash());
