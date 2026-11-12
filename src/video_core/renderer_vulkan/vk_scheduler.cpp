@@ -609,6 +609,12 @@ s64 DeferFlushIntervalUs() {
         }
         return s64{500};
     }();
+    // flush_window: 2 ms. A thread that waits for a deferred submission asks the back for it at
+    // once (WaitSubmitted), so only work nobody waits for yet waits for the window. Ocarina of
+    // Time's 2nd save spot sent ~1,300 such submissions a second at 32-80 us each on the worker.
+    if (interval_us > 0 && Common::Nx2Switches::On(Common::Nx2Switches::Id::FlushWindow)) {
+        return (std::max)(interval_us, s64{2000});
+    }
     return interval_us;
 }
 } // Anonymous namespace

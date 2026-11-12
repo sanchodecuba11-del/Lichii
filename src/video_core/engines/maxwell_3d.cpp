@@ -712,6 +712,18 @@ void Maxwell3D::VerifyCallMethod(Core::System& system, u32 method, u32 method_ar
               shadow_state.reg_array[method], flag_differences);
 }
 
+bool Maxwell3D::RepeatDrawBegin(u32 count) {
+    // The register holds the value already (ProcessShadowRam and ProcessDirtyRegisters change
+    // nothing for it again); DrawBegin of a subsequent instance only adds the instance.
+    if (!fast_maxwell3d || executing_macro != 0 || perf_verify ||
+        regs.draw.instance_id != Regs::Draw::InstanceId::Subsequent ||
+        draw_manager.draw_state.draw_mode != DrawManager::DrawMode::Instance) {
+        return false;
+    }
+    draw_manager.draw_state.instance_count += count;
+    return true;
+}
+
 void Maxwell3D::CallConstBufferWords(Core::System& system, const u32* methods,
                                      const u32* arguments, u32 count) {
     const u32 offset = regs.const_buffer.offset;

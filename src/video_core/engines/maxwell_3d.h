@@ -3210,6 +3210,11 @@ public:
     void CallConstBufferWords(Core::System& system, const u32* methods, const u32* arguments,
                               u32 count);
 
+    /// GpuSplit's back (begin_repeat): `count` more draw.begin writes of the value just written,
+    /// as many CallMethod calls would run them. Only an instance loop's subsequent begins (each
+    /// adds an instance); false where it would do more, and nothing was done.
+    [[nodiscard]] bool RepeatDrawBegin(u32 count);
+
     /// GPU thread split with macros on its front half (gpu_split.h, EDEN_NX2_SPLIT=2), called by
     /// the front instead of CallMethod: runs macros and macro uploads against a copy of the
     /// registers and sends the register writes to the back thread.

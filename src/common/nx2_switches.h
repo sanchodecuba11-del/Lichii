@@ -46,6 +46,10 @@ enum class Id : u32 {
     FrontMacroMemo,    ///< The front skips a macro call whose every register write would change nothing
     PreciseTimer,      ///< The timer thread sleeps until a margin before an event, then waits exactly
     EarlyReadEager,    ///< Early read downloads after one read of a page's writes, up to 64 unread writes
+    FlushWindow,       ///< Deferred submissions batched over 2 ms instead of 0.5 ms
+    DescriptorBufferDraws, ///< Draws use the descriptor buffer where push descriptors would do (at launch)
+    CbBindKeep,        ///< A constant buffer bound again to the same slot keeps its resolved buffer
+    BeginRepeat,       ///< The back counts a run of identical instance draw.begin entries at once
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

@@ -781,6 +781,28 @@ size_t GpuSplit::Execute(const u64* entry, size_t words) {
                 }
                 return count;
             }
+            // begin_repeat: an instance loop's draw.begin writes come in runs of identical
+            // entries (the front sends no draw.end inside the loop): Ocarina of Time's 2nd save
+            // spot ~770,000 a second for ~56,000 draws. The first runs as usual, the rest only add
+            // their instances (Maxwell3D::RepeatDrawBegin).
+            if (method == MAXWELL3D_REG_INDEX(draw.begin) && (head & HasSegment) == 0 &&
+                words > 1 && entry[1] == head &&
+                Common::Nx2Switches::On(Common::Nx2Switches::Id::BeginRepeat)) {
+                u32 count = 1;
+                while (count < words && entry[count] == head) {
+                    ++count;
+                }
+                maxwell3d->ConsumeSink(*system);
+                maxwell3d->CallMethod(*system, method, argument,
+                                      (head & Direct) != 0 || (head & IsLast) != 0);
+                if (!maxwell3d->RepeatDrawBegin(count - 1)) {
+                    for (u32 i = 1; i < count; ++i) {
+                        maxwell3d->CallMethod(*system, method, argument,
+                                              (head & Direct) != 0 || (head & IsLast) != 0);
+                    }
+                }
+                return count;
+            }
             // TEST (switch direct_sink, live): a macro's write of a state register (not
             // executable) is a state write like any other: sunk in order with them, instead of
             // consuming the sink and calling the method (~900,000 a second while moving).
@@ -917,6 +939,8 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
                             Pause();
                             available = published.load(std::memory_order_acquire);
                         }
+                        // Up to the 2 ms window (flush_window): let other threads run.
+                        std::this_thread::yield();
                     }
                 }
             }

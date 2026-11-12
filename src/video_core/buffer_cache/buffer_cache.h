@@ -1936,12 +1936,22 @@ void BufferCache<P>::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr
         channel_state->uniform_buffers[stage][index] = NULL_BINDING;
         return;
     }
-    const Binding binding{
+    Binding& current = channel_state->uniform_buffers[stage][index];
+    // cb_bind_keep: the same range bound again keeps the buffer resolved for it (deleting a buffer
+    // clears the bindings to it, DeleteBuffer), so the next draw doesn't look it up again. Ocarina
+    // of Time's 2nd save spot binds ~360,000 constant buffers a second, ~6 a draw, most of them
+    // the range the slot already had.
+    if constexpr (!HAS_PERSISTENT_UNIFORM_BUFFER_BINDINGS) {
+        if (current.buffer_id && current.device_addr == *device_addr && current.size == size &&
+            Common::Nx2Switches::On(Common::Nx2Switches::Id::CbBindKeep)) {
+            return;
+        }
+    }
+    current = Binding{
         .device_addr = *device_addr,
         .size = size,
         .buffer_id = BufferId{},
     };
-    channel_state->uniform_buffers[stage][index] = binding;
 }
 
 template <class P>

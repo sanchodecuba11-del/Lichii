@@ -22,6 +22,7 @@
 #include "video_core/renderer_vulkan/pipeline_helper.h"
 
 #include "common/bit_field.h"
+#include "common/nx2_switches.h"
 #include "common/scope_exit.h"
 #include "common/zstd_compression.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -523,6 +524,16 @@ GraphicsPipeline::GraphicsPipeline(
     uses_push_descriptor = !mesh_emulation && builder.CanUsePushDescriptor();
     uses_descriptor_buffer = !mesh_emulation && builder.CanUseDescriptorBuffer() &&
                              descriptor_buffer_ring.IsValid();
+    // descriptor_buffer_draws (read at launch: pipelines are built at load): where the driver
+    // would push the descriptors on the Vulkan worker for every draw (AMD: ~0.5-0.8 us, Ocarina
+    // of Time's 2nd save spot ~45 ms a second), the back writes them into the descriptor buffer
+    // once (ConfigureDraw reuses the allocation while they stay) and the draw only sets offsets.
+    if (!mesh_emulation && !uses_descriptor_buffer && uses_push_descriptor &&
+        Common::Nx2Switches::On(Common::Nx2Switches::Id::DescriptorBufferDraws) &&
+        builder.CanUseDescriptorBufferAtAll() && descriptor_buffer_ring.IsValid()) {
+        uses_descriptor_buffer = true;
+        uses_push_descriptor = false;
+    }
     // After every stage's descriptors: the output buffer, then with a task program its payload,
     // offset and map buffers.
     const u32 emulation_buffers{mesh_emulation ? (mesh_emulation->has_task ? 4U : 1U) : 0U};
@@ -538,6 +549,7 @@ GraphicsPipeline::GraphicsPipeline(
                         key.Hash(), descriptor_buffer_layout.size);
             uses_descriptor_buffer = false;
             descriptor_buffer_layout = {};
+            uses_push_descriptor = !mesh_emulation && builder.CanUsePushDescriptor();
             descriptor_set_layout = builder.CreateDescriptorSetLayout(uses_push_descriptor);
         }
     }

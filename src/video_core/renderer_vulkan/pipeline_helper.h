@@ -156,6 +156,14 @@ public:
                device->DescriptorBufferProperties().bufferlessPushDescriptors;
     }
 
+    /// The descriptor buffer is usable, whether or not push descriptors would do
+    /// (descriptor_buffer_draws).
+    bool CanUseDescriptorBufferAtAll() const noexcept {
+        const auto& props = device->DescriptorBufferProperties();
+        return device->IsExtDescriptorBufferSupported() && !bindings.empty() &&
+               props.combinedImageSamplerDescriptorSingleArray;
+    }
+
     bool CanUseDescriptorBuffer() const noexcept {
         const auto& props = device->DescriptorBufferProperties();
         if (!device->IsExtDescriptorBufferSupported() || bindings.empty() ||
