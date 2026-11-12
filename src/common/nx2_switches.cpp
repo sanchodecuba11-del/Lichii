@@ -39,6 +39,7 @@ constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
     {"shim_acquire", "Maitre : une acquisition superieur-ou-egal sur un point de synchronisation deja atteint passe sans vider la traduction", 1, false, true},
     {"front_macro_memo", "Maitre : un appel de macro deja vu, dont chaque ecriture laisserait les registres tels quels, n'est pas reexecute (2 % des appels a la grotte)", 0, false, true},
     {"precise_timer", "Jeu : le fil des minuteries dort jusqu'a 0,5 ms avant l'echeance puis attend exactement (sommeils courts du jeu a l'heure)", 0, false, true},
+    {"early_read_eager", "Lectures du jeu : une page relue une fois est telechargee d'avance a chaque ecriture de la carte (jusqu'a 64 ecritures non relues)", 0, false, true},
     {"gpu_profile", "Mesure : temps des fils GPU par zone, toutes les 10 s", 0, true, true},
     {"stutter_trace", "Mesure : chaque image de plus de 33 ms et sa cause ; resume toutes les 10 s", 0, true, true},
     {"frame_trace", "Mesure : par image, temps processeur de chaque fil, temps de la carte", 0, true, true},

@@ -1001,7 +1001,7 @@ void BufferCache<P>::NoteReadBack(DAddr begin, DAddr end, bool gpu_modified) {
             it->landed_early = false;
             it->written = false;
             it->unread_writes = 0;
-            it->reads = (std::min)(static_cast<u16>(it->reads + 1), EarlyAfterReads);
+            it->reads = (std::min)(static_cast<u16>(it->reads + 1), EarlyAfterReadsNow());
             it->last_read = ++read_back_reads;
         }
     }
@@ -1047,13 +1047,13 @@ void BufferCache<P>::NoteReadBackWrite(DAddr device_addr, u64 size) {
              it != read_back_pages.end() && it->page < end; ++it) {
             it->written = true;
             it->landed_early = false;
-            if (it->unread_writes < MaxUnreadWrites) {
+            if (it->unread_writes < MaxUnreadWritesNow()) {
                 ++it->unread_writes;
             } else {
                 // The guest no longer reads it after its writes.
                 it->reads = 0;
             }
-            if (it->reads >= EarlyAfterReads &&
+            if (it->reads >= EarlyAfterReadsNow() &&
                 std::ranges::find(early_pages, it->page) == early_pages.end()) {
                 early_pages.push_back(it->page);
             }

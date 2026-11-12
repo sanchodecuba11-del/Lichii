@@ -31,6 +31,7 @@
 #include "common/spin_recursive_mutex.h"
 #include "common/div_ceil.h"
 #include "common/literals.h"
+#include "common/nx2_switches.h"
 #include "common/lru_cache.h"
 #include "common/range_sets.h"
 #include "common/scope_exit.h"
@@ -1159,6 +1160,17 @@ private:
     static constexpr u16 EarlyAfterReads = 2;
     /// Writes in a row without a read that stop them.
     static constexpr u16 MaxUnreadWrites = 4;
+    /// early_read_eager: after one read, and up to 64 unread writes. Ocarina of Time's 2nd save
+    /// spot: ~150 reads a second waited ~0.75 ms on pages the GPU rewrites every frame and the
+    /// guest reads a few times a second, which the defaults leave to on-demand flushes.
+    static u16 EarlyAfterReadsNow() {
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::EarlyReadEager) ? 1
+                                                                               : EarlyAfterReads;
+    }
+    static u16 MaxUnreadWritesNow() {
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::EarlyReadEager) ? 64
+                                                                               : MaxUnreadWrites;
+    }
     static constexpr size_t MaxReadBackPages = 64;
     /// Early download bytes a frame, and early downloads not yet in guest memory: past them, reads
     /// flush on demand.
