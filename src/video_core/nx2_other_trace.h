@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "common/common_types.h"
 #include "common/logging.h"
@@ -43,6 +53,11 @@ struct Window {
     u64 start_ns{};
     u64 start_ticks{};
     u32 counter{};
+    /// Executable 3D methods by method, and deferred calls by thunk: count, sampled ticks, samples.
+    std::array<u64, 0xE00> method_entries{};
+    std::array<u64, 0xE00> method_ticks{};
+    std::array<u32, 0xE00> method_samples{};
+    std::unordered_map<u64, std::array<u64, 3>> calls;
 };
 
 /// The back's window (only the split's back runs entries).
@@ -57,13 +72,27 @@ inline thread_local Window t_window;
     return (++t_window.counter & 15) == 0;
 }
 
-inline void Note(Class kind, size_t words, bool sampled, u64 ticks) {
+inline void Note(Class kind, size_t words, bool sampled, u64 ticks, u32 method, u64 thunk) {
     Window& window = t_window;
     ++window.entries[kind];
     window.words[kind] += words;
     if (sampled) {
         ++window.samples[kind];
         window.sample_ticks[kind] += ticks;
+    }
+    if (kind == Executable3D && method < window.method_entries.size()) {
+        ++window.method_entries[method];
+        if (sampled) {
+            ++window.method_samples[method];
+            window.method_ticks[method] += ticks;
+        }
+    } else if (kind == Call) {
+        auto& call = window.calls[thunk];
+        ++call[0];
+        if (sampled) {
+            call[1] += ticks;
+            ++call[2];
+        }
     }
 }
 
@@ -107,6 +136,47 @@ inline void MaybeReport() {
              Nx2Profile::g_zones_enabled ? " (zones taken off)"
                                          : " (zones off: zone time included)",
              text, total_ms);
+    // The 16 executable 3D methods and the 12 deferred calls that cost most (count x sampled mean).
+    const auto cost = [&](u64 count, u64 sampled_ticks, u64 samples) {
+        return samples != 0 ? static_cast<double>(sampled_ticks) * ns_per_tick /
+                                  static_cast<double>(samples) * static_cast<double>(count) /
+                                  1e6 / seconds
+                            : 0.0;
+    };
+    std::vector<std::pair<double, u32>> methods;
+    for (u32 method = 0; method < window.method_entries.size(); ++method) {
+        if (window.method_entries[method] != 0) {
+            methods.emplace_back(cost(window.method_entries[method], window.method_ticks[method],
+                                      window.method_samples[method]),
+                                 method);
+        }
+    }
+    std::ranges::sort(methods, std::greater{});
+    std::string method_text;
+    for (size_t i = 0; i < methods.size() && i < 16; ++i) {
+        const u32 method = methods[i].second;
+        method_text += fmt::format(" {:#x}:{:.0f}/s,{:.1f}ms", method,
+                                   static_cast<double>(window.method_entries[method]) / seconds,
+                                   methods[i].first);
+    }
+    LOG_INFO(HW_GPU, "Back executable 3D methods by cost:{}", method_text);
+#ifdef _WIN32
+    const u64 base = reinterpret_cast<u64>(GetModuleHandleW(nullptr));
+#else
+    const u64 base = 0;
+#endif
+    std::vector<std::pair<double, u64>> calls;
+    for (const auto& [thunk, call] : window.calls) {
+        calls.emplace_back(cost(call[0], call[1], call[2]), thunk);
+    }
+    std::ranges::sort(calls, std::greater{});
+    std::string call_text;
+    for (size_t i = 0; i < calls.size() && i < 12; ++i) {
+        const auto& call = window.calls[calls[i].second];
+        call_text += fmt::format(" +{:#x}:{:.0f}/s,{:.1f}ms", calls[i].second - base,
+                                 static_cast<double>(call[0]) / seconds, calls[i].first);
+    }
+    LOG_INFO(HW_GPU, "Back deferred calls by cost (module offsets):{}", call_text);
     window = Window{};
     window.start_ns = now;
     window.start_ticks = ticks;

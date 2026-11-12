@@ -729,7 +729,8 @@ size_t GpuSplit::ExecuteTraced(const u64* entry, size_t words) {
                                                                : 0;
         exclusive = elapsed > zones ? elapsed - zones : 0;
     }
-    Trace::Note(kind, size, sampled, exclusive);
+    Trace::Note(kind, size, sampled, exclusive, static_cast<u32>((head >> 8) & 0xffff),
+                kind == Trace::Call ? entry[1] : 0);
     return size;
 }
 
