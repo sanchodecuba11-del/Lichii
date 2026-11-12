@@ -28,6 +28,8 @@ enum class Id : u32 {
     ImagePool,         ///< #922: 8-16 MiB images placed in a bounded pool of 64 MiB blocks
     ListWaits,         ///< #1094 (no effect on #1161, which has its own version)
     AcqPark,           ///< #1477 (no effect on #1161, which has its own version)
+    FastDrawAttribs,   ///< Vertex attribute writes that keep the pipeline key keep delta draws
+    FastDrawViewports, ///< Viewport transform and rectangle writes keep delta draws
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

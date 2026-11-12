@@ -26,6 +26,7 @@
 #include "video_core/engines/engine_upload.h"
 #include "video_core/gpu.h"
 #include "video_core/macro.h"
+#include "common/nx2_switches.h"
 #include "video_core/nx2_fast_draw.h"
 #include "video_core/nx2_perf.h"
 #include "video_core/textures/texture.h"
@@ -3318,6 +3319,39 @@ private:
         return argument;
     }
 
+    /// TEST (switch fast_draw_attribs, live): a vertex attribute format write that keeps the
+    /// attribute's type, constant flag and component order, where the host binds vertex input
+    /// dynamically. The pipeline key holds only those (FixedPipelineState::attribute_types), and
+    /// the delta path sets the dynamic vertex input again (UpdateDynamicStates) as a full resolve
+    /// does; the buffer, offset and size reach only that dynamic state.
+    static bool IsFastDrawAttributeKeep(u32 method, u32 old_value, u32 new_value) {
+        constexpr u32 first = static_cast<u32>(MAXWELL3D_REG_INDEX(vertex_attrib_format));
+        if (method - first >= Regs::NumVertexAttributes) {
+            return false;
+        }
+        constexpr u32 key_bits = (1U << 6) | (7U << 27) | (1U << 31); // constant, type, bgra
+        return ((old_value ^ new_value) & key_bits) == 0 &&
+               VideoCommon::Nx2FastDraw::g_dynamic_strides.load(std::memory_order_relaxed) &&
+               Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawAttribs);
+    }
+
+    /// TEST (switch fast_draw_viewports, live): viewport transforms (scale and translate, not the
+    /// swizzle the pipeline key holds) and viewport rectangles and depth ranges. They reach only
+    /// dynamic state, which the delta path sets again (UpdateDynamicStates) as a full resolve
+    /// does; nothing a resolve binds reads them.
+    static bool IsFastDrawDynamicOnly(u32 method) {
+        constexpr u32 transforms = static_cast<u32>(MAXWELL3D_REG_INDEX(viewport_transform));
+        constexpr u32 transform_words = sizeof(Regs::ViewportTransform) / sizeof(u32);
+        constexpr u32 viewports = static_cast<u32>(MAXWELL3D_REG_INDEX(viewports));
+        constexpr u32 viewport_words = sizeof(Regs::Viewport) / sizeof(u32);
+        static_assert(transform_words >= 7 && viewport_words == 4);
+        const bool transform = method - transforms < Regs::NumViewports * transform_words &&
+                               (method - transforms) % transform_words < 6;
+        const bool viewport = method - viewports < Regs::NumViewports * viewport_words;
+        return (transform || viewport) &&
+               Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawViewports);
+    }
+
     /// Stores a register's value and sets its dirty flags. Defined here for the same reason.
     void ProcessDirtyRegisters(u32 method, u32 argument) {
         // The instances after the first are drawn together once their loop ends, and they must see
@@ -3329,7 +3363,9 @@ private:
         }
         // A changed register that doesn't only parameterize the next draw ends fast draw reuse.
         if (VideoCommon::Nx2FastDraw::Enabled() && regs.reg_array[method] != argument &&
-            !IsFastDrawParameter(method)) {
+            !IsFastDrawParameter(method) &&
+            !IsFastDrawAttributeKeep(method, regs.reg_array[method], argument) &&
+            !IsFastDrawDynamicOnly(method)) {
             VideoCommon::Nx2FastDraw::Break(VideoCommon::Nx2FastDraw::Reason::Register, method);
         }
         regs.reg_array[method] = argument;
