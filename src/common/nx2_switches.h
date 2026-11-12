@@ -40,6 +40,9 @@ enum class Id : u32 {
     Blit2dPlaced,      ///< The front places a 2D blit's writes on its destination surface
     ListCopyDefer,     ///< List copies after a dispatch are submitted with the next batch
     QmdWordExact,      ///< A QMD release reduction's base from the exact placed writes to its word
+    VertexInputDedup,  ///< No vkCmdSetVertexInputEXT for the vertex input the command buffer has
+    IdleBatch,         ///< The idle back waits out a deferred submission's window before submitting
+    ShimAcquire,       ///< A greater-or-equal acquire the syncpoint shim meets now passes, no drain
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

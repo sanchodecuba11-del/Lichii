@@ -87,9 +87,11 @@ public:
         (*flags) |= invalidation_flags;
         current_topology = INVALID_TOPOLOGY;
         stencil_reset = true;
+        ++input_generation;
     }
 
     void InvalidateInputState() {
+        ++input_generation;
         (*flags)[Dirty::VertexInput] = true;
         (*flags)[Dirty::PrimitiveRestartEnable] = true;
         for (std::size_t index = VideoCommon::Dirty::VertexBuffer0;
@@ -109,6 +111,12 @@ public:
 
     void InvalidateStateEnableFlag() {
         (*flags)[Dirty::StateEnable] = true;
+    }
+
+    /// Changes whenever the command buffer's vertex input must be set again: a new command
+    /// buffer, an invalidation (vertex_input_dedup).
+    [[nodiscard]] u64 InputGeneration() const {
+        return input_generation;
     }
 
     bool TouchViewports() {
@@ -304,6 +312,7 @@ public:
 
 private:
     static constexpr auto INVALID_TOPOLOGY = static_cast<Maxwell::PrimitiveTopology>(~0u);
+    u64 input_generation = 0;
 
     bool Exchange(std::size_t id, bool new_value) const noexcept {
         const bool is_dirty = (*flags)[id];

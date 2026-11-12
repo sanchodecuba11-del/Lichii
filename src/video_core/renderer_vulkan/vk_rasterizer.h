@@ -284,6 +284,14 @@ private:
     StateTracker& state_tracker;
     Scheduler& scheduler;
 
+    /// vertex_input_dedup: the vertex input UpdateVertexInput recorded last, while the state
+    /// tracker's input generation stays recorded_input_generation.
+    u64 recorded_input_generation = ~u64{0};
+    std::array<VkVertexInputBindingDescription2EXT, 32> recorded_bindings{};
+    std::array<VkVertexInputAttributeDescription2EXT, 32> recorded_attributes{};
+    u32 recorded_binding_count = 0;
+    u32 recorded_attribute_count = 0;
+
     StagingBufferPool staging_pool;
     DescriptorPool descriptor_pool;
     GuestDescriptorQueue guest_descriptor_queue;

@@ -9,6 +9,7 @@
 
 #include "common/assert.h"
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "video_core/nx2_profile.h"
@@ -675,6 +676,17 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         if (AcquireWithoutDrain(dma_pusher, acquire)) {
             return;
         }
+        // shim_acquire: the syncpoint shim has no device address, so the view can't decide its
+        // acquires and they drained the back. A greater-or-equal one the syncpoint meets now
+        // still does once the back ran what was sent (syncpoints only advance). Ocarina of
+        // Time's cave: ~50 a second, all "syncpoint 0 >= 0", each a full drain (20 to 210 ms a
+        // second of the front waiting, by the scene).
+        if (acquire.WaitsToReach() &&
+            dma_pusher.memory_manager.OverlapsSyncpointShim(acquire.address, sizeof(u32)) &&
+            Common::Nx2Switches::On(Common::Nx2Switches::Id::ShimAcquire) &&
+            acquire.Matches(dma_pusher.memory_manager.Read<u32>(acquire.address))) {
+            return;
+        }
         if (VideoCommon::Nx2AcquireStats::g_enabled) [[unlikely]] {
             VideoCommon::Nx2AcquireStats::NoteAcquire(
                 acquire.operation, VideoCommon::Nx2AcquireStats::Decision::Drained, 0, false, false,
@@ -683,8 +695,28 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         const bool check = VideoCommon::Nx2DrainCheck::g_enabled;
         const bool met_before =
             check && acquire.Matches(dma_pusher.memory_manager.Read<u32>(acquire.address));
+        // TEST (EDEN_NX2_ACQUIRE_STATS): what the drained acquires wait on (no device address:
+        // the syncpoint shim?), and whether the word met them before the drain.
+        const bool log_drain = VideoCommon::Nx2AcquireStats::g_enabled && [] {
+            static std::atomic<u32> logged{};
+            return logged.fetch_add(1, std::memory_order_relaxed) < 48;
+        }();
+        const u32 word_before =
+            log_drain ? dma_pusher.memory_manager.Read<u32>(acquire.address) : 0;
         DrainBack();
         const bool met = acquire.Matches(ReadSemaphoreWord(dma_pusher, acquire.address));
+        if (log_drain) [[unlikely]] {
+            LOG_INFO(HW_GPU,
+                     "Drained acquire: channel {} address {:#x} (syncpoint shim {}, device {}) op "
+                     "{} value {:#x}: word {:#x} before the drain ({}), {:#x} after ({})",
+                     dma_pusher.channel_state.bind_id, acquire.address,
+                     dma_pusher.memory_manager.OverlapsSyncpointShim(acquire.address, 4),
+                     dma_pusher.memory_manager.GpuToCpuAddress(acquire.address).has_value(),
+                     acquire.operation, acquire.value, word_before,
+                     acquire.Matches(word_before) ? "met" : "not met",
+                     dma_pusher.memory_manager.Read<u32>(acquire.address),
+                     met ? "met" : "not met");
+        }
         if (check) [[unlikely]] {
             NoteAcquireCheck(dma_pusher, acquire.address, false, met_before, met);
         }

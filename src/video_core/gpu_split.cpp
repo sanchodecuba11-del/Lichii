@@ -20,6 +20,7 @@
 
 #include "common/dkb_cpu_trace.h"
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/settings.h"
 #include "common/thread.h"
 #include "core/core.h"
@@ -895,6 +896,29 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
                  ++spins) {
                 Pause();
                 available = published.load(std::memory_order_acquire);
+            }
+            // TEST (switch idle_batch, live): a deferred submission still within its window waits
+            // for it here; work that arrives meanwhile joins the same submission. A request for
+            // the hook (WaitSubmitted) or a tick ends the wait at once, and so does the window's
+            // end: nothing waits longer than DeferFlush already lets it.
+            if (available == read_position && idle_defer != nullptr &&
+                !hook_requested.load(std::memory_order_relaxed) &&
+                !tick_requested.load(std::memory_order_relaxed) &&
+                Common::Nx2Switches::On(Common::Nx2Switches::Id::IdleBatch)) {
+                if (const u64 remaining_us = idle_defer(idle_defer_argument); remaining_us != 0) {
+                    const auto deadline = std::chrono::steady_clock::now() +
+                                          std::chrono::microseconds{remaining_us};
+                    while (available == read_position &&
+                           !hook_requested.load(std::memory_order_relaxed) &&
+                           !tick_requested.load(std::memory_order_relaxed) &&
+                           !stop_token.stop_requested() &&
+                           std::chrono::steady_clock::now() < deadline) {
+                        for (u32 spin = 0; spin < 64 && available == read_position; ++spin) {
+                            Pause();
+                            available = published.load(std::memory_order_acquire);
+                        }
+                    }
+                }
             }
             if (available == read_position && idle_hook != nullptr) {
                 hook_requested.store(false, std::memory_order_seq_cst);

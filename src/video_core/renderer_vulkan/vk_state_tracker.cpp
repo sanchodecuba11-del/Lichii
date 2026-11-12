@@ -265,6 +265,7 @@ void StateTracker::InvalidateState() {
     flags->set();
     current_topology = INVALID_TOPOLOGY;
     stencil_reset = true;
+    ++input_generation;
 }
 
 StateTracker::StateTracker()

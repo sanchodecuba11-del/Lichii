@@ -142,6 +142,13 @@ public:
         idle_hook = hook;
         idle_argument = argument;
     }
+    /// TEST (switch idle_batch): how many microseconds a deferred submission may still wait (0:
+    /// none pending, or its window is over). The back waits that long for more work before it
+    /// runs the idle hook, so short idle periods don't each submit.
+    void SetIdleDefer(u64 (*remaining_us)(void*), void* argument) {
+        idle_defer = remaining_us;
+        idle_defer_argument = argument;
+    }
     /// Any thread: whether the back thread runs (false before it starts and once it stopped).
     [[nodiscard]] bool BackRunning() const {
         return back_running.load(std::memory_order_acquire);
@@ -813,6 +820,8 @@ private:
     static inline thread_local bool on_back_thread{};
     static inline thread_local bool on_gpu_thread{};
     void (*idle_hook)(void*){};
+    u64 (*idle_defer)(void*){};
+    void* idle_defer_argument{};
     void* idle_argument{};
     void (*tick_hook)(void*){};
     void* tick_argument{};

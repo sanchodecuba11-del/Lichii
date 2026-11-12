@@ -464,9 +464,15 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
     VideoCommon::GpuSplit::Get().SetIdleHook(
         [](void* argument) { static_cast<Scheduler*>(argument)->FlushDeferred(); },
         &scheduler);
+    VideoCommon::GpuSplit::Get().SetIdleDefer(
+        [](void* argument) {
+            return static_cast<Scheduler*>(argument)->DeferredFlushRemainingUs();
+        },
+        &scheduler);
 }
 
 RasterizerVulkan::~RasterizerVulkan() {
+    VideoCommon::GpuSplit::Get().SetIdleDefer(nullptr, nullptr);
     VideoCommon::GpuSplit::Get().SetIdleHook(nullptr, nullptr);
     scheduler.WaitWorker();
     scheduler.Finish();
@@ -4316,6 +4322,9 @@ void RasterizerVulkan::UpdateDynamicStates(const GraphicsPipeline* pipeline) {
             pipeline != nullptr ? pipeline : pipeline_cache.CurrentGraphicsPipeline();
         if (gp && gp->HasDynamicVertexInput()) {
             UpdateVertexInput(regs);
+        } else {
+            // A pipeline with static vertex input replaces the command buffer's.
+            recorded_input_generation = ~u64{0};
         }
     }
 }
@@ -5124,6 +5133,34 @@ void RasterizerVulkan::UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs) 
     for (size_t index = 0; index < Maxwell::NumVertexArrays; ++index) {
         dirty[Dirty::VertexBinding0 + index] = false;
     }
+
+    // vertex_input_dedup: a vertex buffer change marks the input dirty though its description
+    // (strides, rates, formats) often stays. vkCmdSetVertexInputEXT costs AMD's driver ~0.6 us:
+    // Ocarina of Time's cave recorded 16,000-24,000 a second.
+    const auto same_binding = [](const VkVertexInputBindingDescription2EXT& a,
+                                 const VkVertexInputBindingDescription2EXT& b) {
+        return a.binding == b.binding && a.stride == b.stride && a.inputRate == b.inputRate &&
+               a.divisor == b.divisor;
+    };
+    const auto same_attribute = [](const VkVertexInputAttributeDescription2EXT& a,
+                                   const VkVertexInputAttributeDescription2EXT& b) {
+        return a.location == b.location && a.binding == b.binding && a.format == b.format &&
+               a.offset == b.offset;
+    };
+    const u64 generation = state_tracker.InputGeneration();
+    if (Common::Nx2Switches::On(Common::Nx2Switches::Id::VertexInputDedup) &&
+        generation == recorded_input_generation && bindings.size() == recorded_binding_count &&
+        attributes.size() == recorded_attribute_count &&
+        std::equal(bindings.begin(), bindings.end(), recorded_bindings.begin(), same_binding) &&
+        std::equal(attributes.begin(), attributes.end(), recorded_attributes.begin(),
+                   same_attribute)) {
+        return;
+    }
+    recorded_input_generation = generation;
+    recorded_binding_count = static_cast<u32>(bindings.size());
+    recorded_attribute_count = static_cast<u32>(attributes.size());
+    std::copy(bindings.begin(), bindings.end(), recorded_bindings.begin());
+    std::copy(attributes.begin(), attributes.end(), recorded_attributes.begin());
 
     scheduler.Record([bindings, attributes](vk::CommandBuffer cmdbuf) {
         cmdbuf.SetVertexInputEXT(bindings, attributes);
