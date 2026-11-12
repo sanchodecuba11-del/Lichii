@@ -3336,19 +3336,44 @@ private:
     }
 
     /// TEST (switch fast_draw_viewports, live): viewport transforms (scale and translate, not the
-    /// swizzle the pipeline key holds) and viewport rectangles and depth ranges. They reach only
-    /// dynamic state, which the delta path sets again (UpdateDynamicStates) as a full resolve
-    /// does; nothing a resolve binds reads them.
+    /// swizzle the pipeline key holds), viewport rectangles and depth ranges, scissors, blend
+    /// constants, depth bias values, stencil references and masks, line widths. The host sets them
+    /// as dynamic state on every pipeline (GraphicsPipeline's dynamic states), which the delta path
+    /// sets again (UpdateDynamicStates) as a full resolve does; neither the pipeline key nor a
+    /// draw's resolve reads them (clears do, and a clear ends delta draws anyway).
     static bool IsFastDrawDynamicOnly(u32 method) {
         constexpr u32 transforms = static_cast<u32>(MAXWELL3D_REG_INDEX(viewport_transform));
         constexpr u32 transform_words = sizeof(Regs::ViewportTransform) / sizeof(u32);
         constexpr u32 viewports = static_cast<u32>(MAXWELL3D_REG_INDEX(viewports));
         constexpr u32 viewport_words = sizeof(Regs::Viewport) / sizeof(u32);
-        static_assert(transform_words >= 7 && viewport_words == 4);
+        static_assert(transform_words >= 7 && viewport_words == 4 &&
+                      sizeof(Regs::BlendColor) == 4 * sizeof(u32));
         const bool transform = method - transforms < Regs::NumViewports * transform_words &&
                                (method - transforms) % transform_words < 6;
         const bool viewport = method - viewports < Regs::NumViewports * viewport_words;
-        return (transform || viewport) &&
+        constexpr u32 scissors = static_cast<u32>(MAXWELL3D_REG_INDEX(scissor_test));
+        constexpr u32 scissor_words = sizeof(Regs::ScissorTest) / sizeof(u32);
+        constexpr u32 blend_color = static_cast<u32>(MAXWELL3D_REG_INDEX(blend_color));
+        const bool scissor = method - scissors < Regs::NumViewports * scissor_words;
+        bool other = method - blend_color < 4;
+        switch (method) {
+        case MAXWELL3D_REG_INDEX(depth_bias):
+        case MAXWELL3D_REG_INDEX(slope_scale_depth_bias):
+        case MAXWELL3D_REG_INDEX(depth_bias_clamp):
+        case MAXWELL3D_REG_INDEX(stencil_front_ref):
+        case MAXWELL3D_REG_INDEX(stencil_front_func_mask):
+        case MAXWELL3D_REG_INDEX(stencil_front_mask):
+        case MAXWELL3D_REG_INDEX(stencil_back_ref):
+        case MAXWELL3D_REG_INDEX(stencil_back_mask):
+        case MAXWELL3D_REG_INDEX(stencil_back_func_mask):
+        case MAXWELL3D_REG_INDEX(line_width_smooth):
+        case MAXWELL3D_REG_INDEX(line_width_aliased):
+            other = true;
+            break;
+        default:
+            break;
+        }
+        return (transform || viewport || scissor || other) &&
                Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawViewports);
     }
 

@@ -29,7 +29,9 @@ enum class Id : u32 {
     ListWaits,         ///< #1094 (no effect on #1161, which has its own version)
     AcqPark,           ///< #1477 (no effect on #1161, which has its own version)
     FastDrawAttribs,   ///< Vertex attribute writes that keep the pipeline key keep delta draws
-    FastDrawViewports, ///< Viewport transform and rectangle writes keep delta draws
+    FastDrawViewports, ///< Viewport, scissor, blend constant, depth bias, stencil, line width writes keep delta draws
+    FastDrawWrites,    ///< Up to 64 constant data ranges between two delta draws (16 before)
+    FastDrawSerial,    ///< One serial bump per draw window on the drawing thread
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

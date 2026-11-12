@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "common/common_types.h"
+#include "common/nx2_switches.h"
 
 namespace Tegra {
 class MemoryManager;
@@ -110,6 +111,13 @@ inline thread_local bool t_reads_serials{};
 inline thread_local bool t_serial_bumped{};
 inline thread_local bool t_memory_serial_bumped{};
 
+/// TEST (switch fast_draw_serial, live): on the thread that draws, one bump since its last
+/// snapshot already ends the delta chain, so its later breaks skip the atomic add (a 3D register
+/// that changes breaks about a million times a second while moving). Other threads always bump.
+inline thread_local bool t_snapshots{};
+inline thread_local bool t_bumped{};
+inline thread_local bool t_skip_bumps{};
+
 inline void Break(Reason reason, u32 method = 0) {
     if (Enabled()) {
         if (reason != Reason::Register && !(t_reads_serials && t_memory_serial_bumped)) {
@@ -175,7 +183,11 @@ private:
 /// Light changes since the last draw that can reach texture handles. Written and read on the
 /// thread that runs the 3D engine and the rasterizer (the split's back).
 struct Delta {
-    static constexpr size_t MaxWrites = 16;
+    /// TEST (switch fast_draw_writes, live): 64 ranges between two draws; off, 16 as before.
+    static constexpr size_t MaxWrites = 64;
+    [[nodiscard]] static u32 Limit() {
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawWrites) ? 64 : 16;
+    }
 
     std::array<u32, 5> binds{}; ///< Constant buffer slots bound per stage
     /// Constant buffer data written, by GPU address (unmapped addresses included)...
