@@ -43,6 +43,7 @@ enum class Id : u32 {
     VertexInputDedup,  ///< No vkCmdSetVertexInputEXT for the vertex input the command buffer has
     IdleBatch,         ///< The idle back waits out a deferred submission's window before submitting
     ShimAcquire,       ///< A greater-or-equal acquire the syncpoint shim meets now passes, no drain
+    FrontMacroMemo,    ///< The front skips a macro call whose every register write would change nothing
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

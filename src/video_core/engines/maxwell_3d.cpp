@@ -1275,6 +1275,33 @@ struct Maxwell3D::FrontState {
     u64 back_last{};                 ///< The position after the last macro sent to the back
     std::atomic<u32> back_escapes{}; ///< Back macros that wrote outside their write set
     u32 back_escapes_seen{};
+
+    /// front_macro_memo: the last calls of each macro run on the front, by start in the code of
+    /// `memo_generation`. A call with the same parameters, whose register reads still return the
+    /// same values and whose every write would leave its register as it is (FrontWrite's
+    /// same-value skip), is skipped: the code depends on nothing else (no data RAM, no memory
+    /// reads, no executable method; MacroMemoFits).
+    struct MemoCall {
+        std::vector<u32> parameters;
+        std::vector<std::pair<u32, u32>> reads;  ///< (register, value) in order
+        std::vector<std::pair<u32, u32>> writes; ///< (register, value) in order
+        Regs::ShadowRamControl control{};
+        bool valid{};
+    };
+    struct MemoSlot {
+        std::array<MemoCall, 4> calls;
+        u32 next{};
+        s8 fits{-1}; ///< -1: not analyzed yet
+    };
+    std::vector<MemoSlot> memo_slots;
+    u64 memo_generation{~u64{0}};
+    /// The call being recorded (reads, writes), and whether it read a register the back owns.
+    MemoCall memo_record;
+    bool memo_recording{};
+    bool memo_unfit_call{};
+    struct MemoStats {
+        u64 calls{}, hits{}, stored{}, unfit_code{}, changed{}, last_report_ns{};
+    } memo_stats;
 };
 
 namespace {
@@ -1815,6 +1842,25 @@ void Maxwell3D::FrontCallMultiMethod(Core::System& system, VideoCommon::GpuSplit
     }
 }
 
+namespace {
+
+/// front_macro_memo: whether a macro's calls depend only on their parameters and the registers
+/// they read, and write only state registers (no executable method, no MME DMA read, no other
+/// macro, no data RAM).
+template <typename Engine, typename Mask>
+bool MacroMemoFits(const Engine& engine, u32 start, const Mask& execution_mask) {
+    const auto effects = TuringMacroInterpreter::AnalyzeEffects(engine.native_code, start);
+    if (!effects.methods_known || effects.data_ram) {
+        return false;
+    }
+    return std::ranges::none_of(effects.methods, [&](u32 written) {
+        return written >= MacroRegistersStart || written >= execution_mask.size() ||
+               execution_mask[written] || written == 0x157 || written == 0x158;
+    });
+}
+
+} // Anonymous namespace
+
 void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split,
                               FrontState& fs) {
     const u32 method = fs.executing_macro;
@@ -1825,9 +1871,69 @@ void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split
     VideoCommon::Nx2Profile::CountMethod(method, false);
     if (!FrontRunOnBack(system, split, fs, engine, start)) {
         VideoCommon::Nx2Profile::Scope profile_scope{VideoCommon::Nx2Profile::Zone::Macro};
-        if (auto* channel = Nx2ListIndirect::FindChannel(&native_data_ram);
-            channel != nullptr && !channel->words.empty()) {
-            ConcretizeListWords(split, rasterizer, *channel, native_data_ram, engine, start);
+        auto* const list_channel = Nx2ListIndirect::FindChannel(&native_data_ram);
+        const bool list_words = list_channel != nullptr && !list_channel->words.empty();
+        // front_macro_memo: a call that would change nothing is skipped (FrontState::MemoCall).
+        FrontState::MemoSlot* memo_slot = nullptr;
+        if (!list_words && fs.skip_same && fs.control != Regs::ShadowRamControl::Replay &&
+            fs.parameters.size() <= 64 &&
+            Common::Nx2Switches::On(Common::Nx2Switches::Id::FrontMacroMemo)) {
+            ++fs.memo_stats.calls;
+            if (fs.memo_generation != engine.native_code_generation) {
+                fs.memo_slots.clear();
+                fs.memo_generation = engine.native_code_generation;
+            }
+            if (start < engine.native_code.size()) {
+                if (start >= fs.memo_slots.size()) {
+                    fs.memo_slots.resize(static_cast<size_t>(start) + 1);
+                }
+                memo_slot = &fs.memo_slots[start];
+                if (memo_slot->fits < 0) {
+                    memo_slot->fits = MacroMemoFits(engine, start, execution_mask) ? 1 : 0;
+                }
+                if (memo_slot->fits == 0) {
+                    ++fs.memo_stats.unfit_code;
+                    memo_slot = nullptr;
+                }
+            }
+        }
+        if (memo_slot != nullptr) {
+            const bool tracked = fs.control == Regs::ShadowRamControl::Track ||
+                                 fs.control == Regs::ShadowRamControl::TrackWithFilter;
+            const auto unchanged = [&](const FrontState::MemoCall& call) {
+                if (!call.valid || call.control != fs.control ||
+                    !std::ranges::equal(call.parameters, fs.parameters)) {
+                    return false;
+                }
+                for (const auto& [address, value] : call.reads) {
+                    if (address < Regs::NUM_REGS &&
+                        (fs.back_owned[address] || fs.regs[address] != value)) {
+                        return false;
+                    }
+                }
+                for (const auto& [address, value] : call.writes) {
+                    if (fs.back_owned[address] || fs.regs[address] != value ||
+                        (tracked && fs.shadow[address] != value)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            if (std::ranges::any_of(memo_slot->calls, unchanged)) {
+                ++fs.memo_stats.hits;
+                memo_slot = nullptr;
+                goto macro_done;
+            }
+            fs.memo_record.parameters.assign(fs.parameters.begin(), fs.parameters.end());
+            fs.memo_record.reads.clear();
+            fs.memo_record.writes.clear();
+            fs.memo_record.control = fs.control;
+            fs.memo_recording = true;
+            fs.memo_unfit_call = false;
+        }
+        {
+        if (list_words) {
+            ConcretizeListWords(split, rasterizer, *list_channel, native_data_ram, engine, start);
         }
         engine.native_interpreter.active_dram = &native_data_ram;
         const auto parameter_count = fs.parameters.size();
@@ -1835,11 +1941,23 @@ void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split
             if (address >= Regs::NUM_REGS) {
                 return 0U;
             }
-            return fs.back_owned[address] ? FrontRegister(split, fs, address) : fs.regs[address];
+            if (fs.back_owned[address]) {
+                fs.memo_unfit_call = true;
+                return FrontRegister(split, fs, address);
+            }
+            const u32 value = fs.regs[address];
+            if (fs.memo_recording) {
+                fs.memo_record.reads.emplace_back(address, value);
+            }
+            return value;
         };
         const auto emit = [&](u32 address, u32 value) {
             if (address >= MacroRegistersStart) {
+                fs.memo_unfit_call = true;
                 return false;
+            }
+            if (fs.memo_recording) {
+                fs.memo_record.writes.emplace_back(address, value);
             }
             FrontWrite(split, fs, address, value, true, true);
             // MME_DMA_READ (into data RAM) and MME_DMA_READ_FIFOED (into the load FIFO).
@@ -1863,6 +1981,39 @@ void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split
             engine.native_execution_failed = true;
             LOG_ERROR(HW_GPU, "Native MME (split front) failed: start={:#x}, consumed={}/{}, error={}",
                       start, result.consumed, parameter_count, result.error);
+        }
+        if (memo_slot != nullptr) {
+            fs.memo_recording = false;
+            if (result.success && !fs.memo_unfit_call) {
+                FrontState::MemoCall& call =
+                    memo_slot->calls[memo_slot->next++ % memo_slot->calls.size()];
+                std::swap(call.parameters, fs.memo_record.parameters);
+                std::swap(call.reads, fs.memo_record.reads);
+                std::swap(call.writes, fs.memo_record.writes);
+                call.control = fs.memo_record.control;
+                call.valid = true;
+                ++fs.memo_stats.stored;
+            }
+        }
+        }
+    macro_done:
+        if (VideoCommon::Nx2Profile::Enabled() && fs.memo_stats.calls != 0) [[unlikely]] {
+            const u64 now = VideoCommon::Nx2Profile::Now();
+            if (fs.memo_stats.last_report_ns == 0) {
+                fs.memo_stats.last_report_ns = now;
+            } else if (now - fs.memo_stats.last_report_ns >= 10'000'000'000ULL) {
+                const double seconds =
+                    static_cast<double>(now - fs.memo_stats.last_report_ns) / 1e9;
+                LOG_INFO(HW_GPU,
+                         "Front macro memo per second (front_macro_memo): calls {:.0f}, skipped "
+                         "{:.0f}, run and stored {:.0f}, code that can't be skipped {:.0f}",
+                         static_cast<double>(fs.memo_stats.calls) / seconds,
+                         static_cast<double>(fs.memo_stats.hits) / seconds,
+                         static_cast<double>(fs.memo_stats.stored) / seconds,
+                         static_cast<double>(fs.memo_stats.unfit_code) / seconds);
+                fs.memo_stats = {};
+                fs.memo_stats.last_report_ns = now;
+            }
         }
     }
     fs.parameters.clear();
