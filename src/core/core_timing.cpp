@@ -173,10 +173,21 @@ void CoreTiming::WaitForEvent(s64 next_time) {
     if (next_time <= start) {
         return;
     }
+    // precise_timer: the OS sleep (a high-resolution waitable timer) wakes ~350 us late, so the
+    // guest's short sleeps (Ocarina of Time's job threads: ~1,700 a second asking 20 us) lasted
+    // ~370 us. With the switch the OS sleep ends a margin early (EDEN_NX2_TIMER_MARGIN_US, default
+    // 500) and Event::WaitFor (a hardware wait on x86) waits the rest exactly.
+    static const s64 precise_margin_ns = [] {
+        const char* value = std::getenv("EDEN_NX2_TIMER_MARGIN_US");
+        return (value != nullptr ? std::strtoll(value, nullptr, 10) : 500LL) * 1000LL;
+    }();
+    const s64 margin = Common::Nx2Switches::On(Common::Nx2Switches::Id::PreciseTimer)
+                           ? precise_margin_ns
+                           : HOST_WAIT_MARGIN_NS;
     s64 now = start;
     bool signalled = false;
-    if (next_time - now > HOST_WAIT_MARGIN_NS) {
-        signalled = event.SleepFor(std::chrono::nanoseconds{next_time - HOST_WAIT_MARGIN_NS - now});
+    if (next_time - now > margin) {
+        signalled = event.SleepFor(std::chrono::nanoseconds{next_time - margin - now});
         now = GetGlobalTimeNs().count();
     }
     const s64 sleep_ns = now - start;
