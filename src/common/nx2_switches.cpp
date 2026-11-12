@@ -26,6 +26,7 @@ constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
     {"fast_draw_viewports", "Traduction : fenetres, decoupes, couleur de melange, biais de profondeur, gabarit, largeur de ligne laissent le dessin sur le chemin rapide", 1, false, true},
     {"fast_draw_writes", "Traduction : jusqu'a 64 ecritures de constantes entre deux dessins sur le chemin rapide (16 avant)", 1, false, true},
     {"fast_draw_serial", "Traduction : une seule operation atomique par intervalle entre deux dessins pour les cassures du chemin rapide", 1, false, true},
+    {"fast_draw_unread", "Traduction : un attribut de sommet que le shader ne lit pas ne casse plus le chemin rapide", 1, false, true},
     {"gpu_profile", "Mesure : temps des fils GPU par zone, toutes les 10 s", 0, true, true},
     {"stutter_trace", "Mesure : chaque image de plus de 33 ms et sa cause ; resume toutes les 10 s", 0, true, true},
     {"frame_trace", "Mesure : par image, temps processeur de chaque fil, temps de la carte", 0, true, true},

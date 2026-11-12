@@ -1255,6 +1255,8 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
     // break from here on, this draw's own resolve included, ends the delta chain.
     const u64 draw_serial = FastDraw::Serial();
     const u64 draw_memory_serial = FastDraw::MemorySerial();
+    FastDraw::t_unread_attributes =
+        pipeline->HasDynamicVertexInput() ? ~pipeline->LoadedAttributes() : 0U;
     const u64 draw_map_serial = gpu_memory->MapSerial();
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);

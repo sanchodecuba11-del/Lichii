@@ -135,6 +135,8 @@ public:
 
     bool HasDynamicVertexInput() const noexcept { return key.state.dynamic_vertex_input; }
     u64 DynamicAttributeTypes() const noexcept { return key.state.attribute_types; }
+    /// Generic vertex attributes the vertex stage reads.
+    u32 LoadedAttributes() const noexcept { return loaded_attributes; }
     const std::array<u64, 6>& ShaderHashes() const noexcept {
         return key.unique_hashes;
     }
@@ -489,6 +491,7 @@ private:
     u32 num_textures{};
     bool fragment_has_color0_output{};
     u32 color_output_mask{};
+    u32 loaded_attributes{};
     bool writes_storage{};
     /// Every texture is sampled with a handle read from a constant buffer: ConfigureImpl can
     /// resolve them from texture_memo.

@@ -115,6 +115,9 @@ inline thread_local bool t_memory_serial_bumped{};
 /// snapshot already ends the delta chain, so its later breaks skip the atomic add (a 3D register
 /// that changes breaks about a million times a second while moving). Other threads always bump.
 inline thread_local bool t_snapshots{};
+/// TEST (switch fast_draw_unread): generic vertex attributes the last drawn pipeline's vertex
+/// stage doesn't read, on the thread that draws (0 elsewhere: no attribute counts as unread).
+inline thread_local u32 t_unread_attributes{};
 inline thread_local bool t_bumped{};
 inline thread_local bool t_skip_bumps{};
 

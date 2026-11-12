@@ -32,6 +32,7 @@ enum class Id : u32 {
     FastDrawViewports, ///< Viewport, scissor, blend constant, depth bias, stencil, line width writes keep delta draws
     FastDrawWrites,    ///< Up to 64 constant data ranges between two delta draws (16 before)
     FastDrawSerial,    ///< One serial bump per draw window on the drawing thread
+    FastDrawUnread,    ///< Format writes of attributes the kept pipeline doesn't read keep delta draws
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s
