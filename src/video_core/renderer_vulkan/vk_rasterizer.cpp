@@ -1426,6 +1426,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
         draw_func();
     }
     submitted = true;
+    storage_written_since_wfi |= pipeline->WritesStorage();
     buffer_cache.NoteWorkRecorded(false);
     constexpr u64 final_vertex = 0x16aff33d999f993fULL;
     constexpr u64 final_fragment = 0x52402d8e8ab55263ULL;
@@ -3236,14 +3237,26 @@ void RasterizerVulkan::WaitForIdle() {
             const double seconds = static_cast<double>(now - wfi_stats.since) / 1e9;
             LOG_INFO(Render_Vulkan,
                      "Wait for idle per second: {:.0f}, {:.0f} in a render pass, {:.0f} with "
-                     "nothing recorded since the last one",
+                     "nothing recorded since the last one, {:.0f} kept the render pass open",
                      static_cast<double>(wfi_stats.total) / seconds,
                      static_cast<double>(wfi_stats.render_pass) / seconds,
-                     static_cast<double>(wfi_stats.redundant) / seconds);
+                     static_cast<double>(wfi_stats.redundant) / seconds,
+                     static_cast<double>(wfi_stats.kept) / seconds);
             wfi_stats = {.since = now};
         }
     }
     if (redundant && Common::Nx2Switches::On(Common::Nx2Switches::Id::WfiDedup)) {
+        fence_manager.SignalOrdering();
+        return;
+    }
+    // TEST (switch wfi_keep_pass, live): inside a render pass, the only writes a wait-for-idle
+    // would order that nothing else does are shader stores (storage buffers, images, global
+    // memory). Attachment writes of earlier passes are ordered where their pass ended, compute
+    // writes where the next pass began, copies and uploads by their own barriers. With no shader
+    // store since the last such barrier, the pass stays open.
+    if (scheduler.IsRenderPassActive() && !storage_written_since_wfi &&
+        Common::Nx2Switches::On(Common::Nx2Switches::Id::WfiKeepPass)) {
+        ++wfi_stats.kept;
         fence_manager.SignalOrdering();
         return;
     }
@@ -3259,6 +3272,7 @@ void RasterizerVulkan::WaitForIdle() {
         cmdbuf.PipelineBarrier(flags, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, WFI_BARRIER);
     });
     wfi_serial = scheduler.RecordSerial();
+    storage_written_since_wfi = false;
     fence_manager.SignalOrdering();
 }
 

@@ -16,6 +16,7 @@
 
 #include "common/assert.h"
 #include "common/common_types.h"
+#include "common/nx2_switches.h"
 #include "common/logging.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"

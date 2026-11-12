@@ -549,7 +549,11 @@ private:
         u64 total{};
         u64 render_pass{};
         u64 redundant{};
+        u64 kept{};
     } wfi_stats;
+    /// A draw stored to storage buffers, images or global memory since the last wait-for-idle
+    /// barrier (TEST, wfi_keep_pass). True at first: nothing is known yet.
+    bool storage_written_since_wfi{true};
     FastDrawStats fast_draw_stats;
     /// Nx2FastDraw::Enabled and VerifyEnabled as the drawing thread last read them.
     bool fast_draw_on{};

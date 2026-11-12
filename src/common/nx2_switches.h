@@ -34,6 +34,9 @@ enum class Id : u32 {
     FastDrawSerial,    ///< One serial bump per draw window on the drawing thread
     FastDrawUnread,    ///< Format writes of attributes the kept pipeline doesn't read keep delta draws
     WfiDedup,          ///< A wait-for-idle with nothing recorded since the last one records no barrier
+    WfiKeepPass,       ///< A wait-for-idle in a render pass with no shader store since keeps it open
+    ReportLight,       ///< Report operations fit std::function's inline storage
+    DirectSink,        ///< Macro writes of state registers go through the sink
     // Measurements (0 = off, the default). They log to the emulator's log.
     GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
     StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s

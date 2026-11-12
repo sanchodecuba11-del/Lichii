@@ -780,10 +780,17 @@ size_t GpuSplit::Execute(const u64* entry, size_t words) {
                 }
                 return count;
             }
-            if ((head & Direct) != 0) {
+            // TEST (switch direct_sink, live): a macro's write of a state register (not
+            // executable) is a state write like any other: sunk in order with them, instead of
+            // consuming the sink and calling the method (~900,000 a second while moving).
+            const bool direct_state = (head & Direct) != 0 && method < 0xE00 &&
+                                      !maxwell3d->execution_mask[method] &&
+                                      (head & HasSegment) == 0 &&
+                                      Common::Nx2Switches::On(Common::Nx2Switches::Id::DirectSink);
+            if ((head & Direct) != 0 && !direct_state) {
                 maxwell3d->ConsumeSink(*system);
                 maxwell3d->CallMethod(*system, method, argument, true);
-            } else if (!maxwell3d->execution_mask[method]) {
+            } else if (direct_state || !maxwell3d->execution_mask[method]) {
                 maxwell3d->method_sink.emplace_back(method, argument);
             } else {
                 maxwell3d->ConsumeSink(*system);
