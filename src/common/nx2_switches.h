@@ -41,6 +41,7 @@ enum class Id : u32 {
     GuestWaitTrace,    ///< The game's syncpoint waits: how long, and the GPU chain behind them
     ParkTrace,         ///< What wakes a channel parked on a semaphore
     ThreadTrace,       ///< Where the game's threads wait (by reason), its sleeps, its wake-ups
+    OtherTrace,        ///< The split's back outside every profile zone, by ring entry kind
     Count,
 };
 

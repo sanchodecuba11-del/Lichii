@@ -31,6 +31,7 @@
 #include "video_core/nx2.h"
 #include "video_core/nx2_fast_draw.h"
 #include "video_core/nx2_profile.h"
+#include "video_core/nx2_other_trace.h"
 #include "video_core/nx2_park_trace.h"
 
 namespace VideoCommon {
@@ -679,6 +680,59 @@ void GpuSplit::DeferFunction(std::function<void()>&& func, Writes writes) {
         writes);
 }
 
+size_t GpuSplit::ExecuteTraced(const u64* entry, size_t words) {
+    namespace Trace = Nx2OtherTrace;
+    using Tegra::Engines::Maxwell3D;
+    const u64 head = entry[0];
+    auto* const engine = back_engine;
+    Trace::Class kind = Trace::EngineSwitch;
+    switch (static_cast<Kind>(head & 0xf)) {
+    case Kind::Wrap:
+    case Kind::Engine:
+        break;
+    case Kind::Method: {
+        const u32 method = static_cast<u32>((head >> 8) & 0xffff);
+        constexpr u32 cb_data = MAXWELL3D_REG_INDEX(const_buffer.buffer);
+        constexpr u32 macros = 0xE00;
+        if (engine == nullptr || !engine->fast_maxwell3d) {
+            kind = Trace::OtherMethod;
+        } else if (method - cb_data < 16) {
+            kind = Trace::ConstantWords;
+        } else if (method >= macros) {
+            kind = Trace::Macro3D;
+        } else if ((head & Direct) != 0 || engine->execution_mask[method]) {
+            kind = Trace::Executable3D;
+        } else {
+            kind = Trace::StateRegister;
+        }
+        break;
+    }
+    case Kind::Multi:
+        kind = engine != nullptr && engine->fast_maxwell3d ? Trace::Multi3D : Trace::MultiOther;
+        break;
+    case Kind::Call:
+        kind = Trace::Call;
+        break;
+    }
+    const bool sampled = Trace::Sample();
+    u64 start = 0;
+    u64 child = 0;
+    if (sampled) {
+        child = Nx2Profile::t_data.child_ns;
+        start = Nx2Profile::Ticks();
+    }
+    const size_t size = Execute(entry, words);
+    u64 exclusive = 0;
+    if (sampled) {
+        const u64 elapsed = Nx2Profile::Ticks() - start;
+        const u64 zones = Nx2Profile::t_data.child_ns >= child ? Nx2Profile::t_data.child_ns - child
+                                                               : 0;
+        exclusive = elapsed > zones ? elapsed - zones : 0;
+    }
+    Trace::Note(kind, size, sampled, exclusive);
+    return size;
+}
+
 size_t GpuSplit::Execute(const u64* entry, size_t words) {
     const u64 head = entry[0];
     switch (static_cast<Kind>(head & 0xf)) {
@@ -806,6 +860,10 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
         Nx2Profile::Report("GPU back thread", true);
         MaybeTick();
+        const bool other_trace = Nx2OtherTrace::Enabled();
+        if (other_trace) [[unlikely]] {
+            Nx2OtherTrace::MaybeReport();
+        }
         u64 available = published.load(std::memory_order_acquire);
         if (available == read_position) {
             // The front publishes what it holds at its next commit (a few words) from now on.
@@ -856,8 +914,9 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
         while (read_position != available) {
             const size_t index = read_position & RingMask;
             back_entry_start = read_position;
-            const size_t size =
-                Execute(&ring[index], std::min<u64>(available - read_position, RingWords - index));
+            const size_t entry_words = std::min<u64>(available - read_position, RingWords - index);
+            const size_t size = other_trace ? ExecuteTraced(&ring[index], entry_words)
+                                            : Execute(&ring[index], entry_words);
             read_position += size != 0 ? size : RingWords - index;
             if (hook_requested.load(std::memory_order_relaxed) &&
                 idle_hook != nullptr) [[unlikely]] {

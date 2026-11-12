@@ -714,6 +714,8 @@ private:
             tick_hook(tick_argument);
         }
     }
+    /// Execute, counted and one in 16 timed by kind (TEST, switch other_trace).
+    size_t ExecuteTraced(const u64* entry, size_t words);
 
     Core::System* system{};
     bool active{};

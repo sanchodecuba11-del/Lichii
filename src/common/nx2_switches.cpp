@@ -34,6 +34,7 @@ constexpr std::array<Info, static_cast<size_t>(Id::Count)> infos{{
     {"guest_wait_trace", "Mesure : chaque attente du jeu sur la carte, sa duree, le temps de l'envoi au signal ; toutes les 2 s", 0, true, true},
     {"park_trace", "Mesure : ce qui reveille un canal en pause, et apres combien de temps ; toutes les 2 s", 0, true, true},
     {"thread_trace", "Mesure : ou attendent les fils du jeu, ses sommeils, ses reveils", 0, true, true},
+    {"other_trace", "Mesure : le poste autre de la traduction, par genre d'entree de l'anneau (avec gpu_profile) ; toutes les 10 s", 0, true, true},
 }};
 
 std::mutex init_mutex;
