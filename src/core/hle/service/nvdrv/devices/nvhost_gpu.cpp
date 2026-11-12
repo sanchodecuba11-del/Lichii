@@ -29,6 +29,7 @@
 #include "video_core/gpu.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/memory_manager.h"
+#include "video_core/nx2_guest_wait_trace.h"
 
 namespace Service::Nvidia::Devices {
 namespace {
@@ -496,6 +497,10 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     u32 increment{(flags.fence_increment.Value() != 0 ? 2 : 0) +
                   (flags.increment_value.Value() != 0 ? params.fence.value : 0)};
     params.fence.value = syncpoint_manager.IncrementSyncpointMaxExt(channel_syncpoint, increment);
+    if (VideoCommon::Nx2GuestWaitTrace::Enabled()) [[unlikely]] {
+        VideoCommon::Nx2GuestWaitTrace::Trace::Get().NoteSubmit(
+            bind_id, channel_syncpoint, increment > 0 ? params.fence.value : 0);
+    }
     gpu.PushGPUEntries(bind_id, std::move(entries));
 
     if (g_nx2_driver && !flags.fence_increment.Value() && increment > 0) {

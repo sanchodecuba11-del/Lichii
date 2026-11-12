@@ -20,6 +20,7 @@
 #include "common/scope_exit.h"
 #include "common/logging.h"
 #include "common/nx2_sampler.h"
+#include "common/nx2_switches.h"
 #include "common/scm_rev.h"
 #include "common/settings.h"
 #include "common/stb.h"
@@ -32,7 +33,9 @@
 #include "core/memory.h"
 #include "hid_core/hid_core.h"
 #include "video_core/gpu.h"
+#include "video_core/gpu_split.h"
 #include "video_core/nx2_debug_control.h"
+#include "video_core/nx2_profile.h"
 #include "video_core/renderer_base.h"
 
 namespace Core::Nx2Debug {
@@ -506,6 +509,42 @@ json HostTiming(ToolState& state, const json& params) {
     return {{"previous", previous}, {"stats", stats.load()}};
 }
 
+// TEST (local game build): the switches of our changes and measurements (common/nx2_switches.h).
+json Switches(ToolState&, const json&) {
+    namespace Switches = Common::Nx2Switches;
+    json list = json::array();
+    for (u32 i = 0; i < static_cast<u32>(Switches::Id::Count); ++i) {
+        const auto id = static_cast<Switches::Id>(i);
+        const auto& info = Switches::Describe(id);
+        list.push_back({{"name", info.name},
+                        {"description", info.description},
+                        {"value", Switches::Get(id)},
+                        {"default", info.default_value},
+                        {"measurement", info.measurement},
+                        {"live", info.live}});
+    }
+    return {{"switches", list}};
+}
+
+json SetSwitch(ToolState& state, const json& params) {
+    namespace Switches = Common::Nx2Switches;
+    const std::string name = params.at("name").get<std::string>();
+    const int value = params.value("value", 1);
+    const auto id = Switches::Find(name);
+    if (!id) {
+        throw std::runtime_error{fmt::format("no switch named {}", name)};
+    }
+    const int previous = Switches::Get(*id);
+    Switches::Set(*id, value);
+    if (*id == Switches::Id::HostTiming) {
+        state.system.CoreTiming().host_wait_stats = value != 0;
+    }
+    if (*id == Switches::Id::GpuProfile || *id == Switches::Id::StutterTrace) {
+        VideoCommon::Nx2Profile::ReadSwitch();
+    }
+    return {{"name", name}, {"previous", previous}, {"value", value}};
+}
+
 json ReadMemory(ToolState& state, const json& params) {
     const u64 address = AddressParam(params, "address");
     const u64 size = ReadSize(params, address);
@@ -702,6 +741,8 @@ Handlers MakeHandlers(const std::shared_ptr<ToolState>& state) {
         {"sample", handler(SampleThreads)},
         {"speed_limit", handler(SpeedLimit)},
         {"host_timing", handler(HostTiming)},
+        {"switches", handler(Switches)},
+        {"set_switch", handler(SetSwitch)},
         {"read_memory", handler(ReadMemory)},
         {"search_memory", handler(SearchMemory)},
         {"read_gpu_memory", handler(ReadGpuMemory)},

@@ -17,6 +17,7 @@
 #include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/svc.h"
 #include "core/hle/kernel/thread_startup_policy.h"
+#include "core/hle/kernel/nx2_thread_trace.h"
 
 namespace Kernel::Svc {
 namespace {
@@ -185,7 +186,16 @@ void SleepThread(Core::System& system, s64 ns) {
 
         // Sleep.
         // NOTE: Nintendo does not check the result of this sleep.
+        const auto sleep_start = Nx2ThreadTrace::Enabled() ? std::chrono::steady_clock::now()
+                                                            : std::chrono::steady_clock::time_point{};
         static_cast<void>(GetCurrentThread(kernel).Sleep(kernel, timeout));
+        if (Nx2ThreadTrace::Enabled() &&
+            sleep_start != std::chrono::steady_clock::time_point{}) [[unlikely]] {
+            Nx2ThreadTrace::Trace::Get().NoteSleep(
+                ns, static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                         std::chrono::steady_clock::now() - sleep_start)
+                                         .count()));
+        }
     } else if (yield_type == Svc::YieldType::WithoutCoreMigration) {
         KScheduler::YieldWithoutCoreMigration(kernel);
     } else if (yield_type == Svc::YieldType::WithCoreMigration) {

@@ -19,6 +19,7 @@
 #include "common/bit_util.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
+#include "common/nx2_switches.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "video_core/dirty_flags.h"
@@ -359,6 +360,7 @@ bool Maxwell3D::IsFastDrawParameter(u32 method) {
     case MAXWELL3D_REG_INDEX(global_base_instance_index):
     // Written with the first vertex before each draw; nothing a draw resolves reads it.
     case MAXWELL3D_REG_INDEX(vertex_id_base):
+        return Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawNeutral);
     case MAXWELL3D_REG_INDEX(index_buffer.start_addr_high):
     case MAXWELL3D_REG_INDEX(index_buffer.start_addr_low):
     case MAXWELL3D_REG_INDEX(index_buffer.limit_addr_high):
@@ -381,6 +383,9 @@ bool Maxwell3D::IsFastDrawVertexFormat(u32 method) {
 }
 
 bool Maxwell3D::IsFastDrawNeutralMethod(u32 method) {
+    if (!Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawNeutral)) {
+        return false;
+    }
     switch (method) {
     // A counter reset only touches the query cache. The render enable condition decides whether
     // the next draws run (ShouldExecute, or host conditional rendering), not what they bind; a
@@ -397,6 +402,9 @@ bool Maxwell3D::IsFastDrawNeutralMethod(u32 method) {
 }
 
 bool Maxwell3D::IsFastDrawReportOperand(u32 method) {
+    if (!Common::Nx2Switches::On(Common::Nx2Switches::Id::FastDrawNeutral)) {
+        return false;
+    }
     // SET_MME_MEM_ADDRESS_A/B and the data RAM address: only the macro engine's memory reads use
     // them, and what a macro does with the words reaches the engine as writes of its own.
     constexpr u32 MmeMemAddressA = 0x154;

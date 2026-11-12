@@ -21,6 +21,7 @@
 #include "core/hle/service/nvdrv/devices/nvhost_ctrl.h"
 #include "video_core/gpu.h"
 #include "video_core/host1x/host1x.h"
+#include "video_core/nx2_guest_wait_trace.h"
 
 namespace Service::Nvidia::Devices {
 
@@ -119,6 +120,9 @@ NvResult nvhost_ctrl::IocCtrlEventWait(IocCtrlEventWaitParams& params, bool is_a
     }
 
     if (syncpoint_manager.IsFenceSignalled(params.fence)) {
+        if (VideoCommon::Nx2GuestWaitTrace::Enabled()) [[unlikely]] {
+            VideoCommon::Nx2GuestWaitTrace::Trace::Get().NoteMet(fence_id);
+        }
         params.value.raw = syncpoint_manager.ReadSyncpointMinValue(fence_id);
         return NvResult::Success;
     }
@@ -163,6 +167,9 @@ NvResult nvhost_ctrl::IocCtrlEventWait(IocCtrlEventWaitParams& params, bool is_a
     }
 
     if (params.timeout == 0) {
+        if (VideoCommon::Nx2GuestWaitTrace::Enabled()) [[unlikely]] {
+            VideoCommon::Nx2GuestWaitTrace::Trace::Get().NotePoll(fence_id);
+        }
         if (check_failing()) {
             events[slot].fails = 0;
             return NvResult::Success;
@@ -198,8 +205,14 @@ NvResult nvhost_ctrl::IocCtrlEventWait(IocCtrlEventWaitParams& params, bool is_a
     }
     params.value.raw |= slot;
 
+    if (VideoCommon::Nx2GuestWaitTrace::Enabled()) [[unlikely]] {
+        VideoCommon::Nx2GuestWaitTrace::Trace::Get().NoteWaitStart(slot, fence_id, target_value);
+    }
     event.wait_handle =
         host1x_syncpoint_manager.RegisterHostAction(fence_id, target_value, [this, slot]() {
+            if (VideoCommon::Nx2GuestWaitTrace::Enabled()) [[unlikely]] {
+                VideoCommon::Nx2GuestWaitTrace::Trace::Get().NoteWaitEnd(slot);
+            }
             auto& event_ = events[slot];
             if (event_.status.exchange(EventState::Signalling, std::memory_order_acq_rel) ==
                 EventState::Waiting) {

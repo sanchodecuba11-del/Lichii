@@ -31,6 +31,7 @@
 #include "video_core/nx2.h"
 #include "video_core/nx2_fast_draw.h"
 #include "video_core/nx2_profile.h"
+#include "video_core/nx2_park_trace.h"
 
 namespace VideoCommon {
 

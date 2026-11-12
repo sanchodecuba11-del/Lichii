@@ -22,6 +22,7 @@
 #include "common/scratch_buffer.h"
 #include "video_core/engines/engine_interface.h"
 #include "video_core/engines/puller.h"
+#include "video_core/nx2_park_trace.h"
 
 namespace Core {
 class System;
@@ -147,6 +148,8 @@ struct CommandList final {
 
     boost::container::small_vector<CommandListHeader, 512> command_lists;
     boost::container::small_vector<CommandHeader, 512> prefetch_command_list;
+    /// TEST (EDEN_NX2_PARK_TRACE): when the list was made (the game's submission).
+    u64 submitted_ns = VideoCommon::Nx2ParkTrace::Enabled() ? VideoCommon::Nx2ParkTrace::Now() : 0;
     /// EDEN_NX2_PB_CHECK: hash of each entry's words when it was submitted.
     std::vector<u64> submit_hashes;
     /// The entries' words when they were submitted (NX2), each entry's at submitted_offsets[i]:

@@ -28,6 +28,7 @@
 #include "video_core/nx2_drain_check.h"
 #include "video_core/nx2_fast_draw.h"
 #include "video_core/rasterizer_interface.h"
+#include "video_core/nx2_park_trace.h"
 
 namespace Tegra::Engines {
 
@@ -525,6 +526,9 @@ bool Puller::ResumeAcquire(DmaPusher& dma_pusher) {
     // counting those made the count odd ("suspended") at random, so submit-time snapshots were
     // thrown away for about half of all entries (CommandList::snapshot_suspensions).
     if (pending_acquire) {
+        if (VideoCommon::Nx2ParkTrace::Enabled()) [[unlikely]] {
+            VideoCommon::Nx2ParkTrace::Trace::Get().NoteResumed(this);
+        }
         pending_acquire.reset();
         dma_pusher.suspensions.fetch_add(1, std::memory_order_release);
         Nx2SemaphoreWaiters::Get().Remove(this);
@@ -695,6 +699,13 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         }
         ReleaseFences(dma_pusher);
         if (!waiters.Latched(this) && !acquire.Matches(ReadSemaphoreWord(dma_pusher, acquire.address))) {
+            if (VideoCommon::Nx2ParkTrace::Enabled()) [[unlikely]] {
+                if (const auto park_device = dma_pusher.memory_manager.GpuToCpuAddress(acquire.address)) {
+                    VideoCommon::Nx2ParkTrace::Trace::Get().NotePark(this, dma_pusher.channel_state.bind_id,
+                                                                    *park_device, acquire.value,
+                                                                    acquire.operation);
+                }
+            }
             pending_acquire = acquire;
             dma_pusher.suspensions.fetch_add(1, std::memory_order_release);
             VideoCommon::Nx2Profile::Add(VideoCommon::Nx2Profile::Counter::AcquireWaits, 1);

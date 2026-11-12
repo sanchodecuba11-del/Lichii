@@ -509,6 +509,10 @@ bool DmaPusher::Step() {
     }
 
     CommandList& command_list = dma_pushbuffer.front();
+    if (VideoCommon::Nx2ParkTrace::Enabled()) [[unlikely]] {
+        VideoCommon::Nx2ParkTrace::t_list_submitted_ns = command_list.submitted_ns;
+        VideoCommon::Nx2ParkTrace::t_front_channel = channel_state.bind_id;
+    }
 
     const size_t prefetch_size = command_list.prefetch_command_list.size();
     const size_t command_list_size = command_list.command_lists.size();

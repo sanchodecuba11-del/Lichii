@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "common/common_types.h"
+#include "common/nx2_switches.h"
 
 namespace Common::DkbFrameTrace {
 
@@ -16,7 +17,8 @@ inline bool Enabled() {
         const char* value = std::getenv("EDEN_DKB_FRAME_TRACE");
         return value && std::strcmp(value, "1") == 0;
     }();
-    return enabled;
+    // TEST (switch frame_trace, live)
+    return enabled || Common::Nx2Switches::On(Common::Nx2Switches::Id::FrameTrace);
 }
 
 struct RateLimit {

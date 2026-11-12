@@ -44,6 +44,7 @@
 #include "core/hle/kernel/thread_startup_policy.h"
 #include "core/hle/result.h"
 #include "core/memory.h"
+#include "core/hle/kernel/nx2_thread_trace.h"
 
 namespace {
 
@@ -1443,6 +1444,13 @@ namespace Kernel {
 
     void KThread::SetState(KernelCore& kernel, ThreadState state) {
         KScopedSchedulerLock sl{kernel};
+        if (Nx2ThreadTrace::Enabled()) [[unlikely]] {
+            const ThreadState before = m_thread_state.load(std::memory_order_relaxed);
+            Nx2ThreadTrace::Trace::Get().NoteState(
+                this, this->GetThreadId(), (before & ThreadState::Mask) == ThreadState::Waiting,
+                (state & ThreadState::Mask) == ThreadState::Waiting,
+                static_cast<u32>(m_wait_reason_for_debugging));
+        }
         // Clear debugging state
         this->SetWaitReasonForDebugging({});
         const ThreadState old_state = m_thread_state.load(std::memory_order_relaxed);

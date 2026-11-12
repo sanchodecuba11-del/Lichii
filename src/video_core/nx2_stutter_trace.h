@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "common/common_types.h"
+#include "common/nx2_switches.h"
 
 // EDEN_NX2_STUTTER_TRACE=1: per presented frame, the wall time each GPU thread (front, back,
 // VulkanWorker) spent by category, from the EDEN_NX2_GPU_PROFILE zones (nx2_profile.h maps each
@@ -112,10 +113,18 @@ inline constexpr std::array<std::string_view, SiteCount> site_names{
 }
 
 inline bool g_enabled = ReadEnv();
+/// Bumped when the switch stutter_trace turns the trace back on (TEST): the next present starts a
+/// new window instead of counting the time it was off as one long frame.
+inline std::atomic<u32> g_generation{};
 
-/// Called with Nx2Profile::ReadSwitch, once nx2_switches.txt is applied.
+/// Called with Nx2Profile::ReadSwitch, once nx2_switches.txt is applied, and when the switch
+/// stutter_trace changes (TEST, live).
 inline void ReadSwitch() {
-    g_enabled = ReadEnv();
+    const bool was_enabled = g_enabled;
+    g_enabled = ReadEnv() || Common::Nx2Switches::On(Common::Nx2Switches::Id::StutterTrace);
+    if (g_enabled && !was_enabled) {
+        g_generation.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 [[nodiscard]] inline bool Enabled() {

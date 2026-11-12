@@ -15,6 +15,7 @@
 #include "common/cpu_features.h"
 #include "common/cpu_features.h"
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/thread_cpu_clock.h"
 
 #ifdef _WIN32
@@ -132,6 +133,10 @@ void CoreTiming::Initialize(std::function<void()>&& on_thread_init_) {
     cpu_ticks = 0;
     if (const char* stats = std::getenv("EDEN_NX2_HOSTTIMING_STATS")) {
         host_wait_stats = std::strtol(stats, nullptr, 10) != 0;
+    }
+    // TEST (switch host_timing; the debug server's set_switch turns it on and off live)
+    if (Common::Nx2Switches::On(Common::Nx2Switches::Id::HostTiming)) {
+        host_wait_stats = true;
     }
     if (is_multicore) {
         timer_thread = std::jthread([this](std::stop_token stop_token) {

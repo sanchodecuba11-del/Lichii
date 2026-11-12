@@ -50,6 +50,8 @@ add_library(
     dkb_cpu_trace.cpp
     dkb_cpu_trace.h
     nx2_sampler.cpp
+    nx2_switches.cpp
+    nx2_switches.h
     nx2_sampler.h
     dynamic_library.cpp
     dynamic_library.h

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #ifdef _MSC_VER
 #include <intrin.h>
 #elif defined(ARCHITECTURE_x86_64)
@@ -21,6 +22,7 @@
 #include "common/common_types.h"
 #include "video_core/gpu_split.h"
 #include "common/logging.h"
+#include "common/nx2_switches.h"
 #include "common/cpu_features.h"
 #include "common/spin_recursive_mutex.h"
 #include "common/thread_cpu_clock.h"
@@ -164,11 +166,21 @@ inline bool g_zones_enabled = g_enabled || StutterTrace::ReadEnv();
     return value != nullptr && value[0] == '2';
 }
 inline bool g_fine = FineSwitchSet();
+/// Bumped when the profile is turned on again (TEST, switch gpu_profile): every thread starts a new
+/// window instead of reporting one that ran mostly unmeasured.
+inline std::atomic<u32> g_generation{};
 
 /// Called by VideoCore::CreateGPU: static initialization runs before the frontend loads
-/// nx2_switches.txt, so a switch set only there takes effect from that point on.
+/// nx2_switches.txt, so a switch set only there takes effect from that point on. Also called
+/// when the switch gpu_profile or stutter_trace changes (TEST, live). Turned on live, the 3D
+/// engines keep their fast path (fast_maxwell3d is decided when they are made).
 inline void ReadSwitch() {
-    g_enabled = std::getenv("EDEN_NX2_GPU_PROFILE") != nullptr;
+    const bool was_enabled = g_enabled;
+    g_enabled = std::getenv("EDEN_NX2_GPU_PROFILE") != nullptr ||
+                Common::Nx2Switches::On(Common::Nx2Switches::Id::GpuProfile);
+    if (g_enabled && !was_enabled) {
+        g_generation.fetch_add(1, std::memory_order_relaxed);
+    }
     g_fine = FineSwitchSet();
     StutterTrace::ReadSwitch();
     g_zones_enabled = g_enabled || StutterTrace::Enabled();
@@ -238,6 +250,7 @@ struct ThreadData {
     u32 samples_left{1};  ///< SampledScope: entries until the next timed one
     u32 sample_weight{1}; ///< SampledScope: the entries the next timed one stands for
     u32 sample_seed{0x2545F491};
+    u32 generation{}; ///< g_generation of the window
 };
 
 inline thread_local ThreadData t_data;
@@ -539,6 +552,18 @@ inline void Report(const char* thread_name = "GPU thread", bool report_all_conte
     }
     auto& data = t_data;
     const u64 now = Now();
+    if (const u32 generation = g_generation.load(std::memory_order_relaxed);
+        data.generation != generation) {
+        data.generation = generation;
+        data.exclusive_ns = {};
+        data.count = {};
+        data.counters = {};
+        data.drain_ns = {};
+        data.drain_count = {};
+        data.gpu_wait_ns = {};
+        data.gpu_wait_count = {};
+        data.window_start = 0;
+    }
     if (data.window_start == 0) {
         data.window_start = now;
         data.window_start_ticks = Ticks();

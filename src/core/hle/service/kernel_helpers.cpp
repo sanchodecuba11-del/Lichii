@@ -16,6 +16,7 @@
 #include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
 #include "core/hle/service/kernel_helpers.h"
+#include "core/hle/kernel/nx2_thread_trace.h"
 
 namespace Service::KernelHelpers {
 
@@ -87,6 +88,10 @@ Kernel::KEvent* ServiceContext::CreateEvent(std::string&& name) {
     {
         std::scoped_lock lk{debug_names_mutex};
         debug_names[&event->GetReadableEvent()] = name;
+    }
+    if (Kernel::Nx2ThreadTrace::Enabled()) [[unlikely]] {
+        Kernel::Nx2ThreadTrace::Trace::Get().NameObject(
+            static_cast<const Kernel::KSynchronizationObject*>(&event->GetReadableEvent()), name);
     }
     {
         std::scoped_lock lk{event_names_mutex};

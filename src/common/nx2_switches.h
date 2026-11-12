@@ -1,0 +1,72 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <optional>
+#include <string_view>
+
+#include "common/common_types.h"
+
+/// TEST (local game build): switches that turn a change or a measurement on and off while the game
+/// runs, to compare frame rates and see what goes on without rebuilding or relaunching. Each one
+/// is read where it decides (a relaxed load). Set at launch with
+/// EDEN_NX2_SWITCHES="name=value,name=value" and live with the debug server's `switches` and
+/// `set_switch` methods (tools/interrupteurs.py shows them as a panel).
+namespace Common::Nx2Switches {
+
+enum class Id : u32 {
+    // Changes of our pull requests (1 = on, the default).
+    ListWords,         ///< #1336: the host GPU reads the list words it wrote (list draws, dispatches)
+    FastDrawNeutral,   ///< #1216: more draws keep the fast path (stride words, render enable, ...)
+    AstcEvenBc,        ///< #1194: uneven-mip ASTC re-compressed to BC without its uneven tail (AMD)
+    AmdDrawBudget,     ///< #1088: 512 draws per submission on AMD's proprietary driver
+    AmdQueryAvailability, ///< #1087: query results copied with their availability (AMD)
+    ImagePool,         ///< #922: 8-16 MiB images placed in a bounded pool of 64 MiB blocks
+    // Measurements (0 = off, the default). They log to the emulator's log.
+    GpuProfile,        ///< Where the GPU threads spend their time, every 10 s
+    StutterTrace,      ///< Each frame over 33 ms with its cause; a summary every 10 s
+    FrameTrace,        ///< Per frame: CPU time of every thread, GPU time, presents (DKB)
+    HostTiming,        ///< Late timers and the timing thread's waits, every second
+    GuestWaitTrace,    ///< The game's syncpoint waits: how long, and the GPU chain behind them
+    ParkTrace,         ///< What wakes a channel parked on a semaphore
+    ThreadTrace,       ///< Where the game's threads wait (by reason), its sleeps, its wake-ups
+    Count,
+};
+
+struct Info {
+    const char* name;
+    const char* description;
+    int default_value;
+    bool measurement;
+    bool live; ///< False: read once at launch (the panel says so)
+};
+
+[[nodiscard]] const Info& Describe(Id id);
+
+namespace detail {
+inline std::array<std::atomic<int>, static_cast<size_t>(Id::Count)> g_values{};
+inline std::atomic<bool> g_initialized{};
+void Initialize();
+} // namespace detail
+
+/// The switch's value now.
+[[nodiscard]] inline int Get(Id id) {
+    if (!detail::g_initialized.load(std::memory_order_acquire)) [[unlikely]] {
+        detail::Initialize();
+    }
+    return detail::g_values[static_cast<size_t>(id)].load(std::memory_order_relaxed);
+}
+[[nodiscard]] inline bool On(Id id) {
+    return Get(id) != 0;
+}
+
+/// Sets a switch by name; false if no switch has that name.
+bool Set(std::string_view name, int value);
+void Set(Id id, int value);
+[[nodiscard]] std::optional<Id> Find(std::string_view name);
+
+} // namespace Common::Nx2Switches

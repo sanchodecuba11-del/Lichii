@@ -21,6 +21,7 @@
 #include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/physical_core.h"
+#include "core/hle/kernel/nx2_thread_trace.h"
 
 namespace Kernel {
 
@@ -334,6 +335,9 @@ void KScheduler::SwitchThread(KernelCore& kernel, KThread* next_thread) {
 
     if (next_thread->GetCurrentCore() != m_core_id) {
         next_thread->SetCurrentCore(m_core_id);
+    }
+    if (Nx2ThreadTrace::Enabled() && next_thread != cur_thread) [[unlikely]] {
+        Nx2ThreadTrace::Trace::Get().NoteRun(next_thread);
     }
 
     // If we're not actually switching thread, there's nothing to do.

@@ -118,6 +118,7 @@ struct FrameState {
     u64 window_compute_builds{};
     std::array<u64, LookupCount> lookups{};
     std::array<u64, DriverBuildCount> driver_builds{};
+    u32 generation{}; ///< g_generation of the window
 };
 
 FrameState g_frame;
@@ -353,9 +354,24 @@ void OnPresent() {
     const u64 interval_ticks = now_ticks - state.last_ticks;
     state.last_ns = now;
     state.last_ticks = now_ticks;
-    if (++state.frames == 1) {
-        BootMarker("first_frame");
+    // Turned back on (TEST, switch stutter_trace): a new window from this present.
+    const u32 generation = g_generation.load(std::memory_order_relaxed);
+    const bool restart = state.frames != 0 && state.generation != generation;
+    state.generation = generation;
+    if (++state.frames == 1 || restart) {
+        if (state.frames == 1) {
+            BootMarker("first_frame");
+        }
         state.window_start_ns = now;
+        state.window_frames = 0;
+        state.window_over_33 = 0;
+        state.window_over_100 = 0;
+        state.histogram = {};
+        state.window_ms = {};
+        state.window_graphics_builds = 0;
+        state.window_compute_builds = 0;
+        state.window_site_ms = {};
+        state.window_site_counts = {};
         for (size_t index = 0; index < LookupCount; ++index) {
             state.lookups[index] = g_totals.lookups[index].load(std::memory_order_relaxed);
         }

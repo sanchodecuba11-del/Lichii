@@ -14,6 +14,7 @@
 #include "core/hle/kernel/k_thread_queue.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/svc_results.h"
+#include "core/hle/kernel/nx2_thread_trace.h"
 
 namespace Kernel {
 
@@ -134,6 +135,9 @@ Result KSynchronizationObject::Wait(KernelCore& kernel, s32* out_index,
         thread->SetSyncedIndex(-1);
 
         // Wait for an object to be signaled.
+        if (Nx2ThreadTrace::Enabled()) [[unlikely]] {
+            Nx2ThreadTrace::Trace::Get().NoteWaitObjects(thread, objects[0], num_objects);
+        }
         wait_queue.SetHardwareTimer(timer);
         thread->BeginWait(kernel, std::addressof(wait_queue));
         thread->SetWaitReasonForDebugging(ThreadWaitReasonForDebugging::Synchronization);
