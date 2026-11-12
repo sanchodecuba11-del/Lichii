@@ -6,6 +6,8 @@
 
 #include <array>
 #include <atomic>
+#include <map>
+#include <mutex>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -24,6 +26,8 @@
 
 #include "video_core/renderer_vulkan/vk_query_cache.h"
 
+#include "common/nx2_switches.h"
+#include "video_core/nx2_other_trace.h"
 #include "common/logging.h"
 #include "common/settings.h"
 #include "common/dkb_cpu_trace.h"
@@ -409,9 +413,47 @@ VideoCommon::ReadTrace::Timeline Scheduler::PlaceRead(
     }
     return timeline;
 }
+namespace {
+// TEST (other_trace): queue submissions by the code that asked for them, logged every 10 s.
+void NoteSubmission(const char* file, u32 line) {
+    static std::mutex mutex;
+    static std::map<std::pair<const char*, u32>, u64> counts;
+    static u64 since{};
+    std::scoped_lock lock{mutex};
+    ++counts[{file, line}];
+    const u64 now = VideoCommon::Nx2Profile::Now();
+    if (since == 0 || now - since > 15'000'000'000ULL) {
+        counts.clear();
+        since = now;
+        return;
+    }
+    if (now - since < 10'000'000'000ULL) {
+        return;
+    }
+    const double seconds = static_cast<double>(now - since) / 1e9;
+    std::vector<std::pair<u64, std::pair<const char*, u32>>> sorted;
+    for (const auto& [where, count] : counts) {
+        sorted.emplace_back(count, where);
+    }
+    std::ranges::sort(sorted, std::greater{});
+    std::string text;
+    for (size_t i = 0; i < sorted.size() && i < 10; ++i) {
+        const std::string_view path{sorted[i].second.first};
+        const size_t slash = path.find_last_of("/\\");
+        text += fmt::format(" {}:{} {:.0f}/s", path.substr(slash == std::string_view::npos ? 0 : slash + 1),
+                            sorted[i].second.second, static_cast<double>(sorted[i].first) / seconds);
+    }
+    LOG_INFO(Render_Vulkan, "Queue submissions per second by caller:{}", text);
+    counts.clear();
+    since = now;
+}
+} // Anonymous namespace
 
 u64 Scheduler::Flush(VkSemaphore signal_semaphore, VkSemaphore wait_semaphore,
                      std::source_location location) {
+    if (VideoCommon::Nx2OtherTrace::Enabled()) [[unlikely]] {
+        NoteSubmission(location.file_name(), location.line());
+    }
     if (state.renderpass) {
         CountRenderPassEnd(location);
     }
